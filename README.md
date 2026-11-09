@@ -129,17 +129,6 @@ Every test and every run uses the same warehouse, so comparisons are fair. And I
 
 ---
 
-## Problems I faced and what I learned
-
-- **Same names for different things.** At first I used `row` and `col` for the size of the warehouse and also for a position. That is confusing, so now the size is `height` and `width`.
-- **Shelves sharing items by mistake.** If you write `items={}` as a default in Python, all shelves share the same dictionary. Adding apples to one shelf adds them to all. The fix is `items=None` and making a new dictionary inside.
-- **The middle of big shelf blocks could not be reached.** I fixed this by making every block one shelf unit.
-- **Running the code.** Files must be run from the main project folder with `python -m scripts.layout`, and the folders need an `__init__.py` file.
-- **Windows setup.** I had to allow PowerShell scripts to activate the virtual environment. I also found that my tests were running with the global Python instead of the project's Python, so I need to make sure the virtual environment is really active.
-- **A test failed after I changed the warehouse.** I changed the number of robots in the layout file and a test still expected the old number. I learned that when I change a design on purpose, I must also update its test.
-- **Where the battery check belongs.** The battery check inside `move()` is only a last safety stop. A smarter battery decision should happen before a robot gets an order.
-
----
 
 ## How to run it
 
