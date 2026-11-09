@@ -1,0 +1,42 @@
+{
+  "name": "Main warehouse v1",
+
+  "legend": {
+    "#": "wall",
+    ".": "floor",
+    "C": "charger",
+    "P": "packing station",
+    "D": "loading dock",
+    "a-z": "shelf unit: every cell with the same lowercase letter belongs to that shelf (a = shelf A)"
+  },
+
+  "map": [
+    "#################",
+    "#..............C#",
+    "#.aaaaa..bbbbb.C#",
+    "#.aaaaa..bbbbb.C#",
+    "#.aaaaa..bbbbb..#",
+    "#..............P#",
+    "#..............P#",
+    "#.ccccc..ddddd..#",
+    "#.ccccc..ddddd..#",
+    "#.ccccc..ddddd..#",
+    "#...............#",
+    "#DDD............#",
+    "#################"
+  ],
+
+  "shelves": {
+    "A": {"name": "Fruit",  "items": {"apples": 30, "bananas": 30, "oranges": 30}},
+    "B": {"name": "Grains", "items": {"rice": 30, "pasta": 30, "flour": 30}},
+    "C": {"name": "Dairy",  "items": {"milk": 30, "cheese": 30, "yogurt": 30}},
+    "D": {"name": "Snacks", "items": {"chips": 30, "cookies": 30, "chocolate": 30}}
+  },
+
+  "robots": [
+    {"id": "R1", "position": [10, 4]},
+    {"id": "R2", "position": [10, 6]},
+    {"id": "R3", "position": [10, 8]}
+    
+  ]
+}
