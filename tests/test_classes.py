@@ -20,7 +20,6 @@ from scripts.classes import (
     RobotStatus,
     OrderStatus,
     Priority,
-    CHARGER,
 )
 
 
@@ -414,10 +413,12 @@ def test_take_missing_item_fails():
     assert shelf.take_item("rice") is False
 
 
-
 # ---------------------------------------------------------------------------
 # Charging
 # ---------------------------------------------------------------------------
+
+from scripts.classes import CHARGER
+
 
 def make_robot_on_charger(battery):
     """A warehouse with a charger at (1, 1) and a robot standing on it."""
@@ -591,3 +592,32 @@ def test_tick_repair_on_working_robot_does_nothing():
     assert success is False
     assert reason == "not broken"
     assert robot.status == RobotStatus.IDLE
+
+
+# ---------------------------------------------------------------------------
+# Blocked cells
+# ---------------------------------------------------------------------------
+
+def test_robot_cannot_move_into_blocked_cell():
+    wh = make_warehouse()
+    robot = Robot("R1", position=(1, 1))
+    wh.add_robot(robot)
+    wh.block_cell((1, 2))
+
+    success, reason = robot.move("right", wh)
+
+    assert success is False
+    assert reason == "blocked"
+    assert robot.position == (1, 1)
+
+
+def test_robot_can_move_after_cell_is_unblocked():
+    wh = make_warehouse()
+    robot = Robot("R1", position=(1, 1))
+    wh.add_robot(robot)
+    wh.block_cell((1, 2))
+    wh.unblock_cell((1, 2))
+
+    success, _ = robot.move("right", wh)
+
+    assert success is True

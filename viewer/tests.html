@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FleetMind – Test Viewer</title>
+<style>
+  :root {
+    --bg: #eef0f3; --panel: #fff; --ink: #1d2128; --muted: #6b7280; --line: #dde1e7;
+    --accent: #2f6fdf; --pass: #1f9d55; --fail: #d64545;
+    --idle: #8a8f98; --to-pickup: #2f6fdf; --to-dropoff: #1f9d55; --charge: #d99a00; --error: #d64545;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; margin: 0; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  header a { color: var(--accent); text-decoration: none; margin-left: auto; }
+  #summary { color: var(--muted); }
+
+  .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: calc(100vh - 53px); }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; height: auto; } }
+
+  /* sidebar */
+  nav { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .search { padding: 12px; border-bottom: 1px solid var(--line); }
+  .search input { width: 100%; font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; }
+  .filters { display: flex; gap: 6px; margin-top: 8px; }
+  .filters button { flex: 1; font-size: 12px; padding: 4px; }
+  .filters button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  #list { overflow: auto; flex: 1; padding-bottom: 20px; }
+  .group { padding: 12px 14px 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); }
+  .item { display: flex; align-items: center; gap: 8px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  .item:hover { background: #f5f6f8; }
+  .item.active { background: #e9f0fd; }
+  .item .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .count { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+  /* main */
+  main { overflow: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; }
+  .title-row { display: flex; align-items: flex-start; gap: 12px; }
+  .title-row h3 { margin: 0; font-size: 20px; flex: 1; }
+  .badge { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; }
+  .badge.passed { background: var(--pass); }
+  .badge.failed { background: var(--fail); }
+  .nodeid { color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 12px; margin-top: 4px; }
+  .doc { margin-top: 8px; }
+
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 1200px) { .grid2 { grid-template-columns: 1fr; } }
+
+  #map-wrap { display: flex; justify-content: center; }
+  canvas { display: block; max-width: 100%; }
+  .nomap { padding: 30px; text-align: center; color: var(--muted); background: #f7f8fa; border-radius: 8px; }
+
+  .controls { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: #b9c0ca; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .step-label { flex: 1; font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
+
+  .current { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: #f6f7f9; font-family: ui-monospace, Consolas, monospace; font-size: 13px; word-break: break-word; }
+  .current.ok { background: #e9f7ef; }
+  .current.bad { background: #fdecec; }
+
+  #steps { position: relative; list-style: none; margin: 0; padding: 0; max-height: 340px; overflow: auto; font-size: 13px; }
+  #steps li { display: flex; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: pointer; }
+  #steps li:hover { background: #f5f6f8; }
+  #steps li.active { background: #e9f0fd; }
+  #steps .n { color: var(--muted); min-width: 22px; text-align: right; font-variant-numeric: tabular-nums; }
+  #steps .mark { width: 14px; flex: none; text-align: center; font-weight: 700; }
+  #steps .label { font-family: ui-monospace, Consolas, monospace; word-break: break-word; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { padding: 5px 4px; border-top: 1px solid var(--line); text-align: left; }
+  th { color: var(--muted); font-weight: 500; border-top: 0; font-size: 12px; }
+  .rdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+
+  pre { margin: 0; background: #1f2430; color: #e6e8ee; padding: 14px; border-radius: 8px; overflow: auto; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+  pre .kw { color: #f2a6ff; } pre .str { color: #a8e6a1; } pre .com { color: #8b93a7; } pre .assert { color: #ffd479; font-weight: 600; }
+
+  .error-box { background: #fdecec; color: #8c2323; border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
+  .broken-map { font: 15px/1.35 ui-monospace, Consolas, monospace; background: #f7f8fa; border-radius: 8px; padding: 10px 12px; white-space: pre; overflow: auto; }
+  .broken-map .ln { color: var(--muted); margin-right: 10px; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin-top: 8px; justify-content: center; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+  #missing { padding: 40px; text-align: center; color: var(--muted); }
+  code.k { background: #f6f7f9; padding: 2px 6px; border-radius: 4px; color: var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <h1>FleetMind <span>test viewer</span></h1>
+  <span id="summary"></span>
+  <a href="index.html">Scenario replay viewer →</a>
+</header>
+
+<div id="missing" hidden>
+  No test recordings found. In the <code class="k">fleetmind</code> folder, run
+  <code class="k">python -m scripts.record_tests</code>, then reload this page.
+</div>
+
+<div class="layout" id="app">
+  <nav>
+    <div class="search">
+      <input id="search" placeholder="Search tests… (e.g. battery, shelf, seed)">
+      <div class="filters">
+        <button data-f="all" class="on">All</button>
+        <button data-f="map">With map</button>
+        <button data-f="failed">Failed</button>
+      </div>
+    </div>
+    <div id="list"></div>
+  </nav>
+
+  <main id="main">
+    <div class="card">
+      <div class="title-row">
+        <h3 id="t-title"></h3>
+        <span id="t-badge" class="badge"></span>
+      </div>
+      <div class="nodeid" id="t-id"></div>
+      <div class="doc" id="t-doc"></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2>What happened</h2>
+        <div id="visual"></div>
+      </div>
+      <div class="card">
+        <h2>The test code</h2>
+        <pre id="code"></pre>
+      </div>
+    </div>
+
+    <div class="grid2" id="detail-row">
+      <div class="card">
+        <h2>Steps</h2>
+        <ul id="steps"></ul>
+      </div>
+      <div class="card">
+        <h2>Robots &amp; shelves at this step</h2>
+        <div id="state"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="test_recordings.js"></script>
+<script>
+(() => {
+  const TESTS = window.TEST_RECORDINGS;
+  if (!TESTS || !TESTS.length) {
+    document.getElementById("missing").hidden = false;
+    document.getElementById("app").hidden = true;
+    return;
+  }
+
+  const $ = (id) => document.getElementById(id);
+  const css = getComputedStyle(document.documentElement);
+  const v = (name) => css.getPropertyValue(name).trim();
+  const COLOR = { idle: v("--idle"), to_pickup: v("--to-pickup"), to_dropoff: v("--to-dropoff"),
+                  to_charger: v("--charge"), charging: v("--charge"), error: v("--error") };
+  const SHELF_TINTS = ["#e8eefc", "#e6f4ec", "#fdf1df", "#f3e8fb", "#fde8e8", "#e6f3f6"];
+
+  let current = null, step = 0, timer = null, filter = "all";
+
+  // Turn "test_robot_cannot_move_into_wall" into "Robot cannot move into wall"
+  const human = (name) => {
+    const s = name.replace(/^test_/, "").replace(/_/g, " ");
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  };
+  const escape = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const hasMap = (t) => t.frames.some((f) => f.map) || t.layout_error;
+
+  const passed = TESTS.filter((t) => t.outcome === "passed").length;
+  $("summary").textContent = `${TESTS.length} tests · ${passed} passed · ${TESTS.length - passed} failed`;
+
+  // ------------------------------------------------------------------
+  // Sidebar
+  // ------------------------------------------------------------------
+  function renderList() {
+    const q = $("search").value.trim().toLowerCase();
+    const groups = {};
+    TESTS.forEach((t, i) => {
+      if (q && !(human(t.name) + " " + t.name + " " + t.doc).toLowerCase().includes(q)) return;
+      if (filter === "map" && !hasMap(t)) return;
+      if (filter === "failed" && t.outcome === "passed") return;
+      (groups[t.file] = groups[t.file] || []).push([t, i]);
+    });
+    $("list").innerHTML = Object.entries(groups).map(([file, items]) =>
+      `<div class="group">${file} (${items.length})</div>` +
+      items.map(([t, i]) => `
+        <div class="item ${current === t ? "active" : ""}" data-i="${i}" title="${escape(human(t.name))}">
+          <span class="dot" style="background:${t.outcome === "passed" ? "var(--pass)" : "var(--fail)"}"></span>
+          <span class="name">${escape(human(t.name))}</span>
+          <span class="count">${t.frames.length ? t.frames.length + " steps" : (t.layout_error ? "file" : "logic")}</span>
+        </div>`).join("")
+    ).join("") || `<div class="group">No tests match.</div>`;
+  }
+
+  $("list").addEventListener("click", (e) => {
+    const el = e.target.closest(".item");
+    if (el) select(TESTS[Number(el.dataset.i)]);
+  });
+  $("search").addEventListener("input", renderList);
+  document.querySelectorAll(".filters button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".filters button").forEach((x) => x.classList.remove("on"));
+    b.classList.add("on");
+    filter = b.dataset.f;
+    renderList();
+  }));
+
+  // ------------------------------------------------------------------
+  // Selecting a test
+  // ------------------------------------------------------------------
+  function select(test) {
+    stop();
+    current = test;
+    step = 0;
+    // start at the first "real" action (skip setup) when there is one
+    const firstAction = test.frames.findIndex((f) => !f.label.startsWith("setup:"));
+    if (firstAction > 0) step = Math.max(0, firstAction - 1);
+
+    $("t-title").textContent = human(test.name);
+    $("t-badge").textContent = test.outcome.toUpperCase();
+    $("t-badge").className = `badge ${test.outcome}`;
+    $("t-id").textContent = test.id;
+    $("t-doc").textContent = test.doc || "";
+    $("code").innerHTML = highlight(test.source);
+    $("detail-row").style.display = test.frames.length ? "" : "none";
+    renderList();
+    render();
+    $("main").scrollTop = 0;
+  }
+
+  // ------------------------------------------------------------------
+  // Rendering one step
+  // ------------------------------------------------------------------
+  function render() {
+    const t = current;
+    const visual = $("visual");
+
+    // Broken layout file tests: show the file's map and the error it caused
+    if (t.layout_error) {
+      const lines = t.layout_error.map.map((row, i) =>
+        `<span class="ln">${String(i).padStart(2)}</span>${escape(row)}  <span class="ln">(${row.length})</span>`).join("\n");
+      visual.innerHTML = `
+        <p>This test feeds a <b>broken layout file</b> to the loader and checks that it is rejected with a clear message.
+        Row numbers on the left, row length on the right.</p>
+        <div class="broken-map">${lines}</div>
+        <div class="error-box"><b>LayoutError:</b> ${escape(t.layout_error.message)}</div>
+        <p class="nodeid">The error was expected, so the test ${t.outcome}.</p>`;
+      return;
+    }
+
+    // Logic-only tests: nothing to draw
+    if (!t.frames.length) {
+      visual.innerHTML = `<div class="nomap">This test checks <b>logic only</b> (numbers, orders or shelves),
+        without a warehouse map or a moving robot. Read the code on the right: each <b>assert</b> is one check.</div>
+        ${t.message ? `<div class="error-box"><pre>${escape(t.message)}</pre></div>` : ""}`;
+      return;
+    }
+
+    const f = t.frames[step];
+    const cls = f.ok === true ? "ok" : f.ok === false ? "bad" : "";
+    visual.innerHTML = `
+      <div id="map-wrap">${f.map ? `<canvas id="map"></canvas>` :
+        `<div class="nomap" style="width:100%">No warehouse in this test, only a robot on its own.<br>See its state below.</div>`}</div>
+      ${f.map ? `<div class="legend"><span><i style="background:var(--idle)"></i>Idle</span>
+        <span><i style="background:var(--to-pickup)"></i>Moving</span><span><i style="background:var(--to-dropoff)"></i>Carrying</span>
+        <span><i style="background:var(--charge)"></i>Charging</span><span><i style="background:var(--error)"></i>Broken</span>
+        <span>Ring = battery</span><span>Big letter = shelf · C charger · P packing · D dock · X blocked</span></div>` : ""}
+      <div class="controls">
+        <button id="prev">◀ Back</button>
+        <button id="play" class="primary">${timer ? "❚❚ Pause" : "▶ Play"}</button>
+        <button id="next">Next ▶</button>
+        <span class="step-label">Step ${step + 1} of ${t.frames.length}</span>
+      </div>
+      <div class="current ${cls}">${escape(f.label)}</div>
+      ${t.message ? `<div class="error-box"><b>Why it failed:</b><pre>${escape(t.message)}</pre></div>` : ""}`;
+
+    $("prev").onclick = () => { stop(); go(step - 1); };
+    $("next").onclick = () => { stop(); go(step + 1); };
+    $("play").onclick = () => (timer ? stop() : play());
+
+    if (f.map) drawMap(f);
+    renderSteps();
+    renderState(f);
+  }
+
+  function go(i) {
+    step = Math.max(0, Math.min(current.frames.length - 1, i));
+    render();
+  }
+  function play() {
+    if (step >= current.frames.length - 1) step = 0;
+    timer = setInterval(() => {
+      if (step >= current.frames.length - 1) { stop(); return; }
+      go(step + 1);
+    }, current.frames.length > 40 ? 120 : 650);
+    render();
+  }
+  function stop() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    if (current) { const b = $("play"); if (b) b.textContent = "▶ Play"; }
+  }
+
+  function renderSteps() {
+    const list = $("steps");
+    list.innerHTML = current.frames.map((f, i) => {
+      const mark = f.ok === true ? `<span class="mark" style="color:var(--pass)">✓</span>`
+                 : f.ok === false ? `<span class="mark" style="color:var(--fail)">✗</span>`
+                 : `<span class="mark" style="color:var(--muted)">·</span>`;
+      return `<li data-s="${i}" class="${i === step ? "active" : ""}"><span class="n">${i + 1}</span>${mark}<span class="label">${escape(f.label)}</span></li>`;
+    }).join("");
+    list.onclick = (e) => { const li = e.target.closest("li"); if (li) { stop(); go(Number(li.dataset.s)); } };
+    // keep the current step visible inside the list without scrolling the whole page
+    const active = list.querySelector(".active");
+    if (active) {
+      const top = active.offsetTop - list.offsetTop;
+      if (top < list.scrollTop) list.scrollTop = top;
+      else if (top + active.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = top + active.offsetHeight - list.clientHeight;
+    }
+  }
+
+  function renderState(f) {
+    const robots = f.robots.length ? `
+      <table><tr><th>Robot</th><th>Position</th><th>Status</th><th>Battery</th><th>Carrying</th><th>Order</th></tr>
+      ${f.robots.map((r) => `<tr>
+        <td><span class="rdot" style="background:${robotColor(r)}"></span><b>${r.id}</b></td>
+        <td>(${r.pos.join(", ")})</td>
+        <td>${r.status}${r.status === "error" ? ` (${r.repair} left)` : ""}</td>
+        <td>${r.battery}%</td>
+        <td>${r.carrying || "–"}</td>
+        <td>${r.order || "–"}</td></tr>`).join("")}</table>` : `<p class="nodeid">No robots yet.</p>`;
+    const shelves = f.shelves.length ? `
+      <table style="margin-top:12px"><tr><th>Shelf</th><th>Items</th></tr>
+      ${f.shelves.map((s) => `<tr><td><b>${s.id}</b></td><td>${Object.entries(s.items).map(([k, n]) => `${k}: ${n}`).join(", ") || "empty"}</td></tr>`).join("")}</table>` : "";
+    $("state").innerHTML = robots + shelves;
+  }
+
+  function robotColor(r) {
+    if (r.status === "error") return COLOR.error;
+    if (r.task && r.task !== "idle") return COLOR[r.task] || COLOR.idle;
+    if (r.status === "carrying") return COLOR.to_dropoff;
+    if (r.status === "moving") return COLOR.to_pickup;
+    if (r.status === "charging") return COLOR.charging;
+    return COLOR.idle;
+  }
+
+  // ------------------------------------------------------------------
+  // Drawing a map from its text rows
+  // ------------------------------------------------------------------
+  function drawMap(f) {
+    const canvas = $("map");
+    const ctx = canvas.getContext("2d");
+    const rows = f.map, H = rows.length, W = rows[0].length;
+    const maxW = Math.min(canvas.parentElement.clientWidth || 600, 640);
+    const cell = Math.max(16, Math.min(56, Math.floor(maxW / W)));
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = W * cell * dpr; canvas.height = H * cell * dpr;
+    canvas.style.width = `${W * cell}px`; canvas.style.height = `${H * cell}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cx = (c) => c * cell + cell / 2, cy = (r) => r * cell + cell / 2;
+
+    ctx.fillStyle = "#f7f8fa"; ctx.fillRect(0, 0, W * cell, H * cell);
+    const shelfIndex = {};
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+      const ch = rows[r][c], x = c * cell, y = r * cell;
+      ctx.strokeStyle = "#eceef2"; ctx.strokeRect(x + .5, y + .5, cell, cell);
+      if (ch === "#") { ctx.fillStyle = "#2b2f36"; ctx.fillRect(x, y, cell, cell); }
+      else if (/[a-z]/.test(ch)) {
+        if (!(ch in shelfIndex)) shelfIndex[ch] = { i: Object.keys(shelfIndex).length, r0: r, r1: r, c0: c, c1: c };
+        const b = shelfIndex[ch];
+        b.r0 = Math.min(b.r0, r); b.r1 = Math.max(b.r1, r); b.c0 = Math.min(b.c0, c); b.c1 = Math.max(b.c1, c);
+        ctx.fillStyle = SHELF_TINTS[b.i % SHELF_TINTS.length];
+        ctx.fillRect(x + 1, y + 1, cell - 1, cell - 1);
+      }
+      else if (ch === "C" || ch === "P" || ch === "D") {
+        const style = { C: ["#fff3cf", "#d99a00"], P: ["#efe6fb", "#7b4fc9"], D: ["#e7eaef", "#5b6475"] }[ch];
+        ctx.fillStyle = style[0]; ctx.fillRect(x + 1, y + 1, cell - 1, cell - 1);
+        ctx.fillStyle = style[1]; ctx.font = `700 ${Math.round(cell * 0.4)}px system-ui`;
+        ctx.fillText(ch, cx(c), cy(r));
+      }
+      else if (ch === "X") {
+        ctx.fillStyle = "rgba(214,69,69,.12)"; ctx.fillRect(x + 1, y + 1, cell - 1, cell - 1);
+        ctx.strokeStyle = "#d64545"; ctx.lineWidth = 2.5; const p = cell * .22;
+        ctx.beginPath(); ctx.moveTo(x + p, y + p); ctx.lineTo(x + cell - p, y + cell - p);
+        ctx.moveTo(x + cell - p, y + p); ctx.lineTo(x + p, y + cell - p); ctx.stroke(); ctx.lineWidth = 1;
+      }
+    }
+
+    // shelf units: one outline and one letter per block
+    for (const [ch, b] of Object.entries(shelfIndex)) {
+      ctx.strokeStyle = "#b9c3d3"; ctx.lineWidth = 1.5;
+      ctx.strokeRect(b.c0 * cell + 1, b.r0 * cell + 1, (b.c1 - b.c0 + 1) * cell - 2, (b.r1 - b.r0 + 1) * cell - 2);
+      ctx.lineWidth = 1;
+      ctx.fillStyle = "#3b4252";
+      const size = Math.min(b.r1 - b.r0 + 1, b.c1 - b.c0 + 1);
+      ctx.font = `600 ${Math.round(cell * (size > 1 ? 0.75 : 0.42))}px system-ui`;
+      ctx.fillText(ch.toUpperCase(), (b.c0 + b.c1 + 1) / 2 * cell, (b.r0 + b.r1 + 1) / 2 * cell);
+    }
+
+    // where the previous step's robots were (faint), to show movement
+    const prev = step > 0 ? current.frames[step - 1] : null;
+    if (prev && prev.map) {
+      for (const r of prev.robots) {
+        const now = f.robots.find((x) => x.id === r.id);
+        if (!r.on_map || !now || (now.pos[0] === r.pos[0] && now.pos[1] === r.pos[1])) continue;
+        ctx.strokeStyle = robotColor(now); ctx.globalAlpha = .5; ctx.lineWidth = 3; ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(cx(r.pos[1]), cy(r.pos[0])); ctx.lineTo(cx(now.pos[1]), cy(now.pos[0])); ctx.stroke();
+        ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(cx(r.pos[1]), cy(r.pos[0]), cell * .18, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0,0,0,.12)"; ctx.fill();
+      }
+    }
+
+    for (const r of f.robots) {
+      if (!r.on_map) continue;
+      const x = cx(r.pos[1]), y = cy(r.pos[0]), rad = cell * .33, color = robotColor(r);
+      ctx.lineWidth = 3; ctx.strokeStyle = "#e3e6eb";
+      ctx.beginPath(); ctx.arc(x, y, rad + 3, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = r.battery < 25 ? COLOR.error : "#5b6475";
+      ctx.beginPath(); ctx.arc(x, y, rad + 3, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * r.battery / 100); ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill();
+      if (r.carrying) {
+        const s = rad * .5; ctx.fillStyle = "#fff"; ctx.fillRect(x + rad * .25, y - rad * .95, s, s);
+        ctx.strokeStyle = color; ctx.strokeRect(x + rad * .25, y - rad * .95, s, s);
+      }
+      ctx.fillStyle = "#fff"; ctx.font = `700 ${Math.round(cell * .3)}px system-ui`;
+      ctx.fillText(r.id.replace(/\D/g, "") || r.id, x, y + 1);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Very small Python highlighter for the code panel
+  // ------------------------------------------------------------------
+  function highlight(src) {
+    return escape(src || "(source not available)").split("\n").map((line) => {
+      const hash = line.indexOf("#");
+      let code = hash >= 0 ? line.slice(0, hash) : line;
+      const comment = hash >= 0 ? `<span class="com">${line.slice(hash)}</span>` : "";
+      code = code
+        .replace(/(&quot;|"[^"]*"|'[^']*')/g, '<span class="str">$1</span>')
+        .replace(/\b(assert)\b/g, '<span class="assert">$1</span>')
+        .replace(/\b(def|for|in|if|is|not|None|True|False|with|return|and|or|import|from|range)\b/g, '<span class="kw">$1</span>');
+      return code + comment;
+    }).join("\n");
+  }
+
+  // keyboard: left/right to step
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" || !current || !current.frames.length) return;
+    if (e.code === "ArrowRight") { stop(); go(step + 1); }
+    if (e.code === "ArrowLeft") { stop(); go(step - 1); }
+    if (e.code === "Space") { e.preventDefault(); timer ? stop() : play(); }
+  });
+
+  window.addEventListener("resize", () => current && render());
+
+  renderList();
+  select(TESTS.find((t) => t.name === "test_full_delivery_works") || TESTS[0]);
+})();
+</script>
+</body>
+</html>

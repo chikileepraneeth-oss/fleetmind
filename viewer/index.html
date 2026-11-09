@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FleetMind – Replay Viewer</title>
+<style>
+  :root {
+    --bg: #eef0f3;
+    --panel: #ffffff;
+    --ink: #1d2128;
+    --muted: #6b7280;
+    --line: #dde1e7;
+    --accent: #2f6fdf;
+
+    /* robot task colors */
+    --idle: #8a8f98;
+    --to-pickup: #2f6fdf;
+    --to-dropoff: #1f9d55;
+    --charge: #d99a00;
+    --error: #d64545;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  select {
+    font: inherit; padding: 6px 10px; border: 1px solid var(--line);
+    border-radius: 8px; background: #fff;
+  }
+  #description { color: var(--muted); flex: 1; min-width: 240px; }
+
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 16px 20px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .card h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .8px;
+    color: var(--muted); margin: 0 0 10px;
+  }
+
+  #stage { position: relative; }
+  #map { display: block; width: 100%; height: auto; cursor: pointer; }
+
+  .controls { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  button {
+    font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 8px;
+    padding: 6px 12px; cursor: pointer; min-width: 40px;
+  }
+  button:hover { border-color: #b9c0ca; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); min-width: 84px; }
+  .tick-label { font-variant-numeric: tabular-nums; min-width: 120px; font-weight: 600; }
+  .speed { display: flex; align-items: center; gap: 6px; margin-left: auto; color: var(--muted); }
+  .speed output { min-width: 56px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  label.toggle { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+
+  #timeline-wrap { margin-top: 10px; }
+  #strip { display: block; width: 100%; height: 18px; }
+  #timeline { width: 100%; margin: 2px 0 0; }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; color: var(--muted); font-size: 13px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+
+  .side { display: flex; flex-direction: column; gap: 16px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .kpi { background: #f6f7f9; border-radius: 8px; padding: 8px 10px; }
+  .kpi b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--muted); font-size: 12px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+  tr:first-child td { border-top: 0; }
+  tr.selected td { background: #f1f5fe; }
+  tr { cursor: pointer; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .battery { width: 64px; height: 8px; background: #e7e9ee; border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; }
+  .battery div { height: 100%; }
+  .small { color: var(--muted); font-size: 12px; }
+
+  #events { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow: auto; font-size: 13px; }
+  #events li { padding: 4px 0; border-top: 1px solid var(--line); display: flex; gap: 8px; }
+  #events li:first-child { border-top: 0; }
+  #events .t { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 34px; }
+  #events .r { font-weight: 600; min-width: 24px; }
+
+  .final { font-size: 13px; }
+  #final > div { display: flex; justify-content: space-between; padding: 3px 0; border-top: 1px solid var(--line); }
+  #final > div:first-child { border-top: 0; }
+
+  #missing { padding: 40px; text-align: center; color: var(--muted); }
+  #missing code { background: #f6f7f9; padding: 2px 6px; border-radius: 4px; color: var(--ink); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>FleetMind <span>replay viewer</span></h1>
+  <select id="scenario" aria-label="Scenario"></select>
+  <div id="description"></div>
+  <a href="tests.html" style="color:var(--accent);text-decoration:none;white-space:nowrap">Test viewer →</a>
+</header>
+
+<div id="missing" hidden>
+  No recordings found. In the <code>fleetmind</code> folder, run <code>python -m scripts.record</code>, then reload this page.
+</div>
+
+<main id="app">
+  <section>
+    <div class="card" id="stage">
+      <canvas id="map"></canvas>
+
+      <div class="controls">
+        <button id="back" title="One tick back (←)">◀</button>
+        <button id="play" class="primary" title="Play / pause (space)">▶ Play</button>
+        <button id="forward" title="One tick forward (→)">▶</button>
+        <button id="restart" title="Back to the start">⟲</button>
+        <span class="tick-label" id="tick-label">Tick 0</span>
+        <label class="toggle"><input type="checkbox" id="trails" checked> Trails</label>
+        <label class="toggle"><input type="checkbox" id="targets" checked> Targets</label>
+        <div class="speed">
+          Speed <input type="range" id="speed" min="1" max="40" value="6">
+          <output id="speed-out">6 t/s</output>
+        </div>
+      </div>
+
+      <div id="timeline-wrap">
+        <canvas id="strip" title="Red = breakdown, orange = dropped item, grey = blocked cell, green = delivery"></canvas>
+        <input type="range" id="timeline" min="0" max="0" value="0" aria-label="Timeline">
+      </div>
+
+      <div class="legend">
+        <span><i style="background:var(--idle)"></i>Idle</span>
+        <span><i style="background:var(--to-pickup)"></i>Going to shelf</span>
+        <span><i style="background:var(--to-dropoff)"></i>Carrying to packing</span>
+        <span><i style="background:var(--charge)"></i>Charging</span>
+        <span><i style="background:var(--error)"></i>Broken</span>
+        <span>Ring = battery · X = blocked cell</span>
+      </div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="card">
+      <h2>So far</h2>
+      <div class="kpis">
+        <div class="kpi"><b id="k-created">0</b><span>orders created</span></div>
+        <div class="kpi"><b id="k-delivered">0</b><span>delivered</span></div>
+        <div class="kpi"><b id="k-waiting">0</b><span>waiting</span></div>
+        <div class="kpi"><b id="k-late">0</b><span>delivered late</span></div>
+        <div class="kpi"><b id="k-breakdowns">0</b><span>breakdowns</span></div>
+        <div class="kpi"><b id="k-avg">–</b><span>avg delivery (ticks)</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Robots <span class="small">(click one to follow it)</span></h2>
+      <table id="robots"></table>
+    </div>
+
+    <div class="card">
+      <h2>Events</h2>
+      <ul id="events"></ul>
+    </div>
+
+    <div class="card final">
+      <h2>End of run</h2>
+      <div id="final"></div>
+    </div>
+  </aside>
+</main>
+
+<script src="recordings.js"></script>
+<script>
+(() => {
+  // ------------------------------------------------------------------
+  // Setup
+  // ------------------------------------------------------------------
+  const RECS = window.RECORDINGS;
+  if (!RECS || !Object.keys(RECS).length) {
+    document.getElementById("missing").hidden = false;
+    document.getElementById("app").hidden = true;
+    return;
+  }
+
+  const css = getComputedStyle(document.documentElement);
+  const COLOR = {
+    idle: css.getPropertyValue("--idle").trim(),
+    to_pickup: css.getPropertyValue("--to-pickup").trim(),
+    to_dropoff: css.getPropertyValue("--to-dropoff").trim(),
+    to_charger: css.getPropertyValue("--charge").trim(),
+    charging: css.getPropertyValue("--charge").trim(),
+    error: css.getPropertyValue("--error").trim(),
+  };
+  const TASK_LABEL = {
+    idle: "Idle",
+    to_pickup: "Going to shelf",
+    to_dropoff: "Carrying",
+    to_charger: "Going to charge",
+    charging: "Charging",
+  };
+  const SHELF_TINTS = ["#e8eefc", "#e6f4ec", "#fdf1df", "#f3e8fb", "#fde8e8", "#e6f3f6"];
+
+  const $ = (id) => document.getElementById(id);
+  const canvas = $("map"), ctx = canvas.getContext("2d");
+  const strip = $("strip"), sctx = strip.getContext("2d");
+
+  let rec = null;          // current recording
+  let t = 0;               // current time in ticks (can be fractional while playing)
+  let playing = false;
+  let speed = 6;           // ticks per second
+  let selected = null;     // selected robot id
+  let lastFrameTime = null;
+  let cell = 40;           // pixel size of one grid cell
+  let eventIndexByTick = []; // events[0 .. eventIndexByTick[tick]] happened at or before tick
+
+  // Fill the scenario list
+  for (const key of Object.keys(RECS)) {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = RECS[key].title;
+    $("scenario").appendChild(opt);
+  }
+
+  // ------------------------------------------------------------------
+  // Loading a scenario
+  // ------------------------------------------------------------------
+  function load(key) {
+    rec = RECS[key];
+    t = 0;
+    playing = false;
+    selected = null;
+    $("description").textContent = `${rec.description}  (seed ${rec.seed}, ${rec.ticks} ticks)`;
+    $("timeline").max = rec.ticks;
+
+    // Index events by tick, so "everything up to tick N" is quick
+    eventIndexByTick = new Array(rec.ticks + 1).fill(0);
+    let i = 0;
+    for (let tick = 0; tick <= rec.ticks; tick++) {
+      while (i < rec.events.length && rec.events[i][0] <= tick) i++;
+      eventIndexByTick[tick] = i;
+    }
+
+    renderFinal();
+    resize();
+    drawStrip();
+    update();
+  }
+
+  // ------------------------------------------------------------------
+  // Drawing the map
+  // ------------------------------------------------------------------
+  function resize() {
+    const L = rec.layout;
+    const width = canvas.parentElement.clientWidth - 28;
+    cell = Math.max(18, Math.floor(width / L.width));
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = L.width * cell * dpr;
+    canvas.height = L.height * cell * dpr;
+    canvas.style.width = `${L.width * cell}px`;
+    canvas.style.height = `${L.height * cell}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const sw = strip.parentElement.clientWidth;
+    strip.width = sw * dpr;
+    strip.height = 18 * dpr;
+    strip.style.width = `${sw}px`;
+    sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  const cx = (c) => c * cell + cell / 2;   // centre x of a column
+  const cy = (r) => r * cell + cell / 2;   // centre y of a row
+
+  function drawStatic() {
+    const L = rec.layout;
+    ctx.fillStyle = "#f7f8fa";
+    ctx.fillRect(0, 0, L.width * cell, L.height * cell);
+
+    // grid lines
+    ctx.strokeStyle = "#eceef2";
+    ctx.lineWidth = 1;
+    for (let c = 0; c <= L.width; c++) { ctx.beginPath(); ctx.moveTo(c * cell + .5, 0); ctx.lineTo(c * cell + .5, L.height * cell); ctx.stroke(); }
+    for (let r = 0; r <= L.height; r++) { ctx.beginPath(); ctx.moveTo(0, r * cell + .5); ctx.lineTo(L.width * cell, r * cell + .5); ctx.stroke(); }
+
+    // walls
+    ctx.fillStyle = "#2b2f36";
+    for (const [r, c] of L.walls) ctx.fillRect(c * cell, r * cell, cell, cell);
+
+    // shelves: one tinted block per shelf unit, with its letter and name
+    L.shelves.forEach((s, i) => {
+      ctx.fillStyle = SHELF_TINTS[i % SHELF_TINTS.length];
+      for (const [r, c] of s.cells) ctx.fillRect(c * cell + 1, r * cell + 1, cell - 1, cell - 1);
+      const rows = s.cells.map((p) => p[0]), cols = s.cells.map((p) => p[1]);
+      const r0 = Math.min(...rows), r1 = Math.max(...rows), c0 = Math.min(...cols), c1 = Math.max(...cols);
+      ctx.strokeStyle = "#b9c3d3";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(c0 * cell + 1, r0 * cell + 1, (c1 - c0 + 1) * cell - 2, (r1 - r0 + 1) * cell - 2);
+      ctx.fillStyle = "#3b4252";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.font = `600 ${Math.round(cell * 0.6)}px system-ui, sans-serif`;
+      const midX = (c0 + c1 + 1) / 2 * cell, midY = (r0 + r1 + 1) / 2 * cell;
+      ctx.fillText(s.id, midX, midY - cell * 0.18);
+      ctx.font = `${Math.round(cell * 0.3)}px system-ui, sans-serif`;
+      ctx.fillStyle = "#6b7280";
+      ctx.fillText(s.name || "", midX, midY + cell * 0.38);
+    });
+
+    // stations
+    station(L.chargers, "#fff3cf", "#d99a00", "C");
+    station(L.packing, "#efe6fb", "#7b4fc9", "P");
+    station(L.docks, "#e7eaef", "#5b6475", "D");
+  }
+
+  function station(cells, fill, ink, letter) {
+    for (const [r, c] of cells) {
+      ctx.fillStyle = fill;
+      ctx.fillRect(c * cell + 1, r * cell + 1, cell - 1, cell - 1);
+      ctx.fillStyle = ink;
+      ctx.font = `700 ${Math.round(cell * 0.42)}px system-ui, sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(letter, cx(c), cy(r));
+    }
+  }
+
+  function drawBlocked(frame) {
+    for (const [r, c] of frame.blocked) {
+      const x = c * cell, y = r * cell, p = cell * 0.22;
+      ctx.fillStyle = "rgba(214,69,69,.12)";
+      ctx.fillRect(x + 1, y + 1, cell - 1, cell - 1);
+      ctx.strokeStyle = "#d64545";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(x + p, y + p); ctx.lineTo(x + cell - p, y + cell - p);
+      ctx.moveTo(x + cell - p, y + p); ctx.lineTo(x + p, y + cell - p);
+      ctx.stroke();
+    }
+  }
+
+  function robotColor(robot) {
+    if (robot.status === "error") return COLOR.error;
+    return COLOR[robot.task] || COLOR.idle;
+  }
+
+  function drawTrails(tick) {
+    if (!$("trails").checked) return;
+    const from = Math.max(0, tick - 15);
+    for (const robot of rec.frames[tick].robots) {
+      if (selected && robot.id !== selected) continue;
+      ctx.strokeStyle = robotColor(robot);
+      ctx.globalAlpha = selected ? 0.55 : 0.25;
+      ctx.lineWidth = selected ? 4 : 3;
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      ctx.beginPath();
+      for (let k = from; k <= tick; k++) {
+        const r = rec.frames[k].robots.find((x) => x.id === robot.id);
+        if (!r) continue;
+        const [row, col] = r.pos;
+        if (k === from) ctx.moveTo(cx(col), cy(row)); else ctx.lineTo(cx(col), cy(row));
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawRobots(tick, frac) {
+    const now = rec.frames[tick];
+    const next = rec.frames[Math.min(tick + 1, rec.ticks)];
+
+    for (const robot of now.robots) {
+      const after = next.robots.find((x) => x.id === robot.id) || robot;
+      // smooth movement between ticks
+      const row = robot.pos[0] + (after.pos[0] - robot.pos[0]) * frac;
+      const col = robot.pos[1] + (after.pos[1] - robot.pos[1]) * frac;
+      const x = cx(col), y = cy(row);
+      const color = robotColor(robot);
+      const radius = cell * 0.34;
+
+      // line to target
+      if ($("targets").checked && robot.target && (!selected || selected === robot.id)) {
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(cx(robot.target[1]), cy(robot.target[0]));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        ctx.strokeRect(robot.target[1] * cell + 4, robot.target[0] * cell + 4, cell - 8, cell - 8);
+      }
+
+      // selection halo
+      if (robot.id === selected) {
+        ctx.fillStyle = "rgba(47,111,223,.15)";
+        ctx.beginPath(); ctx.arc(x, y, radius + 9, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // battery ring
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#e3e6eb";
+      ctx.beginPath(); ctx.arc(x, y, radius + 3.5, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = robot.battery < 25 ? COLOR.error : "#5b6475";
+      ctx.beginPath();
+      ctx.arc(x, y, radius + 3.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * robot.battery / 100);
+      ctx.stroke();
+
+      // body
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
+
+      // carried item: small white square
+      if (robot.carrying) {
+        ctx.fillStyle = "#fff";
+        const s = radius * 0.5;
+        ctx.fillRect(x + radius * 0.25, y - radius * 0.95, s, s);
+        ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+        ctx.strokeRect(x + radius * 0.25, y - radius * 0.95, s, s);
+      }
+
+      // id number
+      ctx.fillStyle = "#fff";
+      ctx.font = `700 ${Math.round(cell * 0.32)}px system-ui, sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(robot.id.replace(/\D/g, ""), x, y + 1);
+    }
+  }
+
+  // Timeline strip: one mark per important event
+  function drawStrip() {
+    const w = strip.clientWidth, h = 18;
+    sctx.clearRect(0, 0, w, h);
+    sctx.fillStyle = "#f1f3f6";
+    sctx.fillRect(0, 0, w, h);
+    const mark = { delivered: ["#1f9d55", 4, 14], breakdown: ["#d64545", 0, 18],
+                   dropped_item: ["#e8833a", 0, 18], cell_blocked: ["#9aa1ad", 2, 16] };
+    for (const [tick, , name] of rec.events) {
+      const m = mark[name];
+      if (!m) continue;
+      const x = (tick / rec.ticks) * (w - 1);
+      sctx.fillStyle = m[0];
+      sctx.fillRect(x, m[1], name === "delivered" ? 1 : 2, m[2] - m[1]);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Side panel
+  // ------------------------------------------------------------------
+  function renderPanel(tick) {
+    const frame = rec.frames[tick];
+    const upTo = rec.events.slice(0, eventIndexByTick[tick]);
+
+    // KPIs so far
+    let created = 0, delivered = 0, late = 0, breakdowns = 0, total = 0;
+    for (const [, , name, details] of upTo) {
+      if (name === "order_created") created++;
+      else if (name === "breakdown") breakdowns++;
+      else if (name === "delivered") {
+        delivered++;
+        if (details.includes("LATE")) late++;
+        const m = details.match(/in (\d+) ticks/);
+        if (m) total += Number(m[1]);
+      }
+    }
+    $("k-created").textContent = created;
+    $("k-delivered").textContent = delivered;
+    $("k-waiting").textContent = frame.queue;
+    $("k-late").textContent = late;
+    $("k-breakdowns").textContent = breakdowns;
+    $("k-avg").textContent = delivered ? (total / delivered).toFixed(1) : "–";
+
+    // Robot table
+    const rows = frame.robots.map((r) => {
+      const color = robotColor(r);
+      const label = r.status === "error" ? `Broken (${r.repair} left)` : TASK_LABEL[r.task] || r.task;
+      const what = r.carrying ? `${r.carrying} · ${r.order}` : (r.order ? r.order : "");
+      const batColor = r.battery < 25 ? "var(--error)" : "#5b6475";
+      return `<tr data-id="${r.id}" class="${r.id === selected ? "selected" : ""}">
+        <td><span class="dot" style="background:${color}"></span><b>${r.id}</b></td>
+        <td>${label}<div class="small">${what}</div></td>
+        <td style="text-align:right"><span class="battery"><div style="width:${r.battery}%;background:${batColor}"></div></span>
+          <div class="small">${r.battery.toFixed(0)}%</div></td>
+      </tr>`;
+    });
+    $("robots").innerHTML = rows.join("");
+
+    // Latest events (newest first); only the selected robot's if one is selected
+    const list = [];
+    for (let i = upTo.length - 1; i >= 0 && list.length < 40; i--) {
+      const [tk, robot, name, details] = upTo[i];
+      if (selected && robot !== selected) continue;
+      list.push(`<li><span class="t">${tk}</span><span class="r">${robot || ""}</span><span>${name.replace(/_/g, " ")} <span class="small">${details}</span></span></li>`);
+    }
+    $("events").innerHTML = list.join("") || `<li class="small">Nothing yet.</li>`;
+  }
+
+  function renderFinal() {
+    const k = rec.kpis;
+    const labels = {
+      orders_created: "Orders created", orders_delivered: "Delivered", orders_waiting: "Still waiting",
+      orders_in_progress: "In progress", orders_failed: "Failed", avg_delivery_time: "Avg delivery (ticks)",
+      on_time_rate: "On-time rate", breakdowns: "Breakdowns", dropped_items: "Dropped items",
+      blocked_cells: "Blocked cells", stuck_steps: "Stuck steps",
+    };
+    $("final").innerHTML = Object.entries(labels).map(([key, label]) => {
+      let v = k[key];
+      if (key === "on_time_rate" && v != null) v = `${(v * 100).toFixed(1)}%`;
+      return `<div><span>${label}</span><b>${v ?? "–"}</b></div>`;
+    }).join("");
+  }
+
+  // ------------------------------------------------------------------
+  // Main update + animation loop
+  // ------------------------------------------------------------------
+  let lastPanelTick = -1;
+
+  function update() {
+    const tick = Math.min(Math.floor(t), rec.ticks);
+    const frac = playing && tick < rec.ticks ? t - tick : 0;
+
+    drawStatic();
+    drawBlocked(rec.frames[tick]);
+    drawTrails(tick);
+    drawRobots(tick, frac);
+
+    $("tick-label").textContent = `Tick ${tick} / ${rec.ticks}`;
+    $("timeline").value = tick;
+    if (tick !== lastPanelTick) {
+      renderPanel(tick);
+      lastPanelTick = tick;
+    }
+  }
+
+  function loop(now) {
+    if (playing) {
+      if (lastFrameTime !== null) {
+        t += ((now - lastFrameTime) / 1000) * speed;
+        if (t >= rec.ticks) { t = rec.ticks; setPlaying(false); }
+      }
+      lastFrameTime = now;
+      update();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  function setPlaying(on) {
+    playing = on;
+    lastFrameTime = null;
+    if (on && t >= rec.ticks) t = 0;
+    if (!on) t = Math.floor(t);
+    $("play").textContent = on ? "❚❚ Pause" : "▶ Play";
+    update();
+  }
+
+  function jump(tick) {
+    t = Math.max(0, Math.min(rec.ticks, tick));
+    lastPanelTick = -1;
+    update();
+  }
+
+  // ------------------------------------------------------------------
+  // Controls
+  // ------------------------------------------------------------------
+  $("scenario").addEventListener("change", (e) => { lastPanelTick = -1; load(e.target.value); });
+  $("play").addEventListener("click", () => setPlaying(!playing));
+  $("back").addEventListener("click", () => { setPlaying(false); jump(Math.floor(t) - 1); });
+  $("forward").addEventListener("click", () => { setPlaying(false); jump(Math.floor(t) + 1); });
+  $("restart").addEventListener("click", () => { setPlaying(false); jump(0); });
+  $("timeline").addEventListener("input", (e) => {
+    const tick = Number(e.target.value);   // read it first: pausing redraws and resets the slider
+    setPlaying(false);
+    jump(tick);
+  });
+  $("speed").addEventListener("input", (e) => { speed = Number(e.target.value); $("speed-out").textContent = `${speed} t/s`; });
+  $("trails").addEventListener("change", update);
+  $("targets").addEventListener("change", update);
+
+  // Click a robot on the map, or a row in the table, to follow it
+  canvas.addEventListener("click", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const col = (e.clientX - rect.left) / cell - 0.5;
+    const row = (e.clientY - rect.top) / cell - 0.5;
+    const frame = rec.frames[Math.floor(t)];
+    let best = null, bestD = 0.6;
+    for (const r of frame.robots) {
+      const d = Math.hypot(r.pos[0] - row, r.pos[1] - col);
+      if (d < bestD) { best = r.id; bestD = d; }
+    }
+    selected = best === selected ? null : best;
+    lastPanelTick = -1;
+    update();
+  });
+  $("robots").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr");
+    if (!tr) return;
+    selected = tr.dataset.id === selected ? null : tr.dataset.id;
+    lastPanelTick = -1;
+    update();
+  });
+
+  // Keyboard: space = play/pause, arrows = step
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "SELECT") return;
+    if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+    if (e.code === "ArrowRight") { setPlaying(false); jump(Math.floor(t) + 1); }
+    if (e.code === "ArrowLeft") { setPlaying(false); jump(Math.floor(t) - 1); }
+  });
+
+  window.addEventListener("resize", () => { resize(); drawStrip(); update(); });
+
+  load(Object.keys(RECS)[0]);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

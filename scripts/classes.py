@@ -165,6 +165,8 @@ class Robot:
         self.path = []                    # planned list of (row, col) steps (used from week 4)
         self.speed = speed                # cells per tick (keep 1 for now)
         self.repair_left = 0              # ticks until repaired (0 = not broken)
+        self.task = None                  # what it is doing: "to_pickup", "to_dropoff", "to_charger", "charging"
+        self.target = None                # (row, col) it is driving to, or None
 
     # Every action returns (success, reason) so the caller always knows WHY
     # something failed. This makes debugging and logging much easier.
@@ -290,6 +292,7 @@ class Warehouse:
         self.shelf_at = {}           # (row, col) -> shelf_id, for every shelf cell
         self.robots = {}             # robot_id -> Robot
         self.occupied = {}           # (row, col) -> robot_id, for fast "is this cell taken?"
+        self.blocked = set()         # floor cells temporarily blocked (e.g. a fallen box)
 
         # Surround the warehouse with walls
         for row in range(height):
@@ -357,6 +360,8 @@ class Warehouse:
             return False, "wall"
         if cell == SHELF:
             return False, "shelf (robots stand next to shelves)"
+        if position in self.blocked:
+            return False, "blocked"
         if position in self.occupied:
             return False, f"occupied by {self.occupied[position]}"
         return True, "free"
@@ -403,6 +408,13 @@ class Warehouse:
 
     # ----- changing the map -----
 
+    def block_cell(self, position):
+        """Temporarily block a floor cell (e.g. something fell on the floor)."""
+        self.blocked.add(position)
+
+    def unblock_cell(self, position):
+        self.blocked.discard(position)
+
     def move_robot(self, robot, new_position):
         """Update the occupancy record. Call only after can_enter() said yes."""
         del self.occupied[robot.position]
@@ -415,7 +427,7 @@ class Warehouse:
         """
         Print the grid as text.
         Shelf cells show their shelf letter in lowercase (a, b, c ...),
-        robots show their number.
+        robots show their number, blocked cells show X.
         """
         for row in range(self.height):
             line = []
@@ -423,6 +435,8 @@ class Warehouse:
                 position = (row, col)
                 if position in self.occupied:
                     line.append(self.occupied[position][-1])     # "R1" -> "1"
+                elif position in self.blocked:
+                    line.append("X")
                 elif position in self.shelf_at:
                     line.append(self.shelf_at[position][0].lower())
                 else:
