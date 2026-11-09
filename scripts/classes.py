@@ -153,6 +153,7 @@ class Robot:
     """An autonomous mobile robot that carries one item at a time."""
 
     BATTERY_PER_STEP = 0.5   # percent used per move (a design choice: change it)
+    CHARGE_PER_TICK = 5.0    # percent added per charge
 
     def __init__(self, robot_id, position, battery=100.0, speed=1):
         self.robot_id = robot_id          # e.g. "R1"
@@ -163,6 +164,7 @@ class Robot:
         self.order = None                 # the Order it is working on, or None
         self.path = []                    # planned list of (row, col) steps (used from week 4)
         self.speed = speed                # cells per tick (keep 1 for now)
+        self.repair_left = 0              # ticks until repaired (0 = not broken)
 
     # Every action returns (success, reason) so the caller always knows WHY
     # something failed. This makes debugging and logging much easier.
@@ -222,6 +224,47 @@ class Robot:
         self.order = None
         self.status = RobotStatus.IDLE
         return True, f"delivered {delivered_item}"
+
+    def charge(self, warehouse):
+        """Charge while standing ON a charger."""
+        if self.status == RobotStatus.ERROR:
+            return False, "robot is broken"
+        if warehouse.cell_type(self.position) != CHARGER:
+            return False, "not on a charger"
+        if self.battery >= 100:
+            self.status = RobotStatus.IDLE
+            return False, "battery already full"
+
+        self.battery = min(100.0, self.battery + self.CHARGE_PER_TICK)
+
+        if self.battery >= 100:
+            self.status = RobotStatus.IDLE
+            return True, "fully charged"
+        self.status = RobotStatus.CHARGING
+        return True, f"charging ({self.battery:.1f}%)"
+
+    def break_down(self, repair_ticks):
+        """The robot breaks and needs repair_ticks ticks to be fixed."""
+        self.status = RobotStatus.ERROR
+        self.repair_left = repair_ticks
+        return True, f"broke down, repair in {repair_ticks} ticks"
+
+    def tick_repair(self):
+        """Call once per tick. Counts down the repair time."""
+        if self.status != RobotStatus.ERROR:
+            return False, "not broken"
+
+        self.repair_left -= 1
+
+        if self.repair_left > 0:
+            return False, f"still broken ({self.repair_left} ticks left)"
+
+        self.repair_left = 0
+        if self.carrying is not None:
+            self.status = RobotStatus.CARRYING
+        else:
+            self.status = RobotStatus.IDLE
+        return True, "repaired"
 
     def __repr__(self):
         return (f"Robot({self.robot_id}, pos={self.position}, "

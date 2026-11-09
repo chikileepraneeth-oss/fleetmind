@@ -20,6 +20,7 @@ from scripts.classes import (
     RobotStatus,
     OrderStatus,
     Priority,
+    CHARGER,
 )
 
 
@@ -411,3 +412,16 @@ def test_take_item_reduces_quantity():
 def test_take_missing_item_fails():
     shelf = Shelf("A1", (2, 3), {"apples": 2})
     assert shelf.take_item("rice") is False
+
+
+
+def test_charging_on_charger_increases_battery():
+    wh = make_warehouse()
+    wh.add_charger((1, 1))
+    robot = Robot("R1", position=(1, 1), battery=50.0)
+    wh.add_robot(robot)
+
+    success, reason = robot.charge(wh)
+
+    assert success is True
+    assert robot.battery == 50.0 + Robot.CHARGE_PER_TICK
