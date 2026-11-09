@@ -415,13 +415,179 @@ def test_take_missing_item_fails():
 
 
 
-def test_charging_on_charger_increases_battery():
+# ---------------------------------------------------------------------------
+# Charging
+# ---------------------------------------------------------------------------
+
+def make_robot_on_charger(battery):
+    """A warehouse with a charger at (1, 1) and a robot standing on it."""
     wh = make_warehouse()
     wh.add_charger((1, 1))
-    robot = Robot("R1", position=(1, 1), battery=50.0)
+    robot = Robot("R1", position=(1, 1), battery=battery)
     wh.add_robot(robot)
+    return wh, robot
+
+
+def test_charging_on_charger_increases_battery():
+    wh, robot = make_robot_on_charger(battery=50.0)
 
     success, reason = robot.charge(wh)
 
     assert success is True
     assert robot.battery == 50.0 + Robot.CHARGE_PER_TICK
+
+
+def test_status_is_charging_while_not_full():
+    wh, robot = make_robot_on_charger(battery=50.0)
+
+    robot.charge(wh)
+
+    assert robot.status == RobotStatus.CHARGING
+
+
+def test_charging_not_on_charger_fails():
+    wh = make_warehouse()
+    robot = Robot("R1", position=(1, 1), battery=50.0)   # normal floor
+    wh.add_robot(robot)
+
+    success, reason = robot.charge(wh)
+
+    assert success is False
+    assert reason == "not on a charger"
+    assert robot.battery == 50.0
+
+
+def test_battery_never_goes_above_100():
+    wh, robot = make_robot_on_charger(battery=98.0)
+
+    robot.charge(wh)
+
+    assert robot.battery == 100.0
+
+
+def test_robot_becomes_idle_when_full():
+    wh, robot = make_robot_on_charger(battery=98.0)
+
+    success, reason = robot.charge(wh)
+
+    assert success is True
+    assert reason == "fully charged"
+    assert robot.status == RobotStatus.IDLE
+
+
+def test_charging_when_already_full_fails():
+    wh, robot = make_robot_on_charger(battery=100.0)
+
+    success, reason = robot.charge(wh)
+
+    assert success is False
+    assert reason == "battery already full"
+    assert robot.battery == 100.0
+
+
+def test_charging_many_times_reaches_full():
+    wh, robot = make_robot_on_charger(battery=0.0)
+
+    for _ in range(100):           # more than enough calls
+        robot.charge(wh)
+
+    assert robot.battery == 100.0
+    assert robot.status == RobotStatus.IDLE
+
+
+def test_broken_robot_cannot_charge():
+    wh, robot = make_robot_on_charger(battery=50.0)
+    robot.break_down(repair_ticks=5)
+
+    success, reason = robot.charge(wh)
+
+    assert success is False
+    assert robot.battery == 50.0
+
+
+# ---------------------------------------------------------------------------
+# Breakdown and repair
+# ---------------------------------------------------------------------------
+
+def test_break_down_sets_error_status():
+    robot = Robot("R1", position=(1, 1))
+
+    robot.break_down(repair_ticks=3)
+
+    assert robot.status == RobotStatus.ERROR
+    assert robot.repair_left == 3
+
+
+def test_broken_robot_cannot_move_after_break_down():
+    wh = make_warehouse()
+    robot = Robot("R1", position=(1, 1))
+    wh.add_robot(robot)
+    robot.break_down(repair_ticks=3)
+
+    success, reason = robot.move("right", wh)
+
+    assert success is False
+    assert reason == "robot is broken"
+    assert robot.position == (1, 1)
+
+
+def test_robot_still_broken_one_tick_before_repair():
+    robot = Robot("R1", position=(1, 1))
+    robot.break_down(repair_ticks=3)
+
+    robot.tick_repair()
+    robot.tick_repair()
+
+    assert robot.status == RobotStatus.ERROR
+    assert robot.repair_left == 1
+
+
+def test_robot_repaired_after_enough_ticks():
+    robot = Robot("R1", position=(1, 1))
+    robot.break_down(repair_ticks=3)
+
+    robot.tick_repair()
+    robot.tick_repair()
+    success, reason = robot.tick_repair()
+
+    assert success is True
+    assert reason == "repaired"
+    assert robot.status == RobotStatus.IDLE
+    assert robot.repair_left == 0
+
+
+def test_repaired_robot_can_move_again():
+    wh = make_warehouse()
+    robot = Robot("R1", position=(1, 1))
+    wh.add_robot(robot)
+    robot.break_down(repair_ticks=1)
+
+    robot.tick_repair()
+    success, reason = robot.move("right", wh)
+
+    assert success is True
+    assert robot.position == (1, 2)
+
+
+def test_robot_keeps_item_and_goes_back_to_carrying_after_repair():
+    wh = make_warehouse()
+    robot = Robot("R1", position=(3, 2))      # next to shelf A1
+    wh.add_robot(robot)
+    robot.order = make_order()
+    robot.pick(wh)
+    robot.break_down(repair_ticks=1)
+
+    robot.tick_repair()
+
+    assert robot.carrying == "apples"
+    assert robot.status == RobotStatus.CARRYING
+
+
+def test_tick_repair_on_working_robot_does_nothing():
+    robot = Robot("R1", position=(1, 1))
+
+    success, reason = robot.tick_repair()
+
+    assert success is False
+    assert reason == "not broken"
+    assert robot.status == RobotStatus.IDLE
