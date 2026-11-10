@@ -163,7 +163,7 @@
   const $ = (id) => document.getElementById(id);
   const css = getComputedStyle(document.documentElement);
   const v = (name) => css.getPropertyValue(name).trim();
-  const COLOR = { idle: v("--idle"), to_pickup: v("--to-pickup"), to_dropoff: v("--to-dropoff"),
+  const COLOR = { idle: v("--idle"), to_home: v("--idle"), to_pickup: v("--to-pickup"), to_dropoff: v("--to-dropoff"),
                   to_charger: v("--charge"), charging: v("--charge"), error: v("--error") };
   const SHELF_TINTS = ["#e8eefc", "#e6f4ec", "#fdf1df", "#f3e8fb", "#fde8e8", "#e6f3f6"];
 
@@ -421,6 +421,17 @@
         ctx.beginPath(); ctx.arc(cx(r.pos[1]), cy(r.pos[0]), cell * .18, 0, Math.PI * 2);
         ctx.fillStyle = "rgba(0,0,0,.12)"; ctx.fill();
       }
+    }
+
+    // planned routes (A*)
+    for (const r of f.robots) {
+      if (!r.on_map || !r.path || !r.path.length) continue;
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = robotColor(r); ctx.globalAlpha = .7; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx(r.pos[1]), cy(r.pos[0]));
+      for (const [pr, pc] of r.path) ctx.lineTo(cx(pc), cy(pr));
+      ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.lineWidth = 1;
+      const [tr, tc] = r.path[r.path.length - 1];
+      ctx.strokeStyle = robotColor(r); ctx.strokeRect(tc * cell + 4, tr * cell + 4, cell - 8, cell - 8);
     }
 
     for (const r of f.robots) {

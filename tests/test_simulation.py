@@ -220,8 +220,7 @@ def test_generator_skips_items_out_of_stock():
     for shelf in wh.shelves.values():
         for item in shelf.items:
             shelf.items[item] = 0
-    shelf_a = wh.get_shelf("A")
-    shelf_a.items["apples"] = 1
+    wh.find_shelf_with("apples").items["apples"] = 1
 
     for _ in range(10):
         assert gen.create(0).item == "apples"

@@ -134,6 +134,7 @@ def snapshot_robots(wh, extra):
             "carrying": r.carrying,
             "order": r.order.order_id if r.order else None,
             "target": list(r.target) if getattr(r, "target", None) else None,
+            "path": [list(c) for c in getattr(r, "path", [])],
             "repair": getattr(r, "repair_left", 0),
             "on_map": wh is not None and r.robot_id in wh.robots and wh.robots[r.robot_id] is r,
         })

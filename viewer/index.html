@@ -124,7 +124,7 @@
         <button id="restart" title="Back to the start">⟲</button>
         <span class="tick-label" id="tick-label">Tick 0</span>
         <label class="toggle"><input type="checkbox" id="trails" checked> Trails</label>
-        <label class="toggle"><input type="checkbox" id="targets" checked> Targets</label>
+        <label class="toggle"><input type="checkbox" id="targets" checked> Routes</label>
         <div class="speed">
           Speed <input type="range" id="speed" min="1" max="40" value="6">
           <output id="speed-out">6 t/s</output>
@@ -142,7 +142,7 @@
         <span><i style="background:var(--to-dropoff)"></i>Carrying to packing</span>
         <span><i style="background:var(--charge)"></i>Charging</span>
         <span><i style="background:var(--error)"></i>Broken</span>
-        <span>Ring = battery · X = blocked cell</span>
+        <span>Dashed line = planned route · Ring = battery · X = blocked cell</span>
       </div>
     </div>
   </section>
@@ -195,12 +195,14 @@
     idle: css.getPropertyValue("--idle").trim(),
     to_pickup: css.getPropertyValue("--to-pickup").trim(),
     to_dropoff: css.getPropertyValue("--to-dropoff").trim(),
+    to_home: css.getPropertyValue("--idle").trim(),
     to_charger: css.getPropertyValue("--charge").trim(),
     charging: css.getPropertyValue("--charge").trim(),
     error: css.getPropertyValue("--error").trim(),
   };
   const TASK_LABEL = {
     idle: "Idle",
+    to_home: "Going home",
     to_pickup: "Going to shelf",
     to_dropoff: "Carrying",
     to_charger: "Going to charge",
@@ -293,24 +295,41 @@
     ctx.fillStyle = "#2b2f36";
     for (const [r, c] of L.walls) ctx.fillRect(c * cell, r * cell, cell, cell);
 
-    // shelves: one tinted block per shelf unit, with its letter and name
-    L.shelves.forEach((s, i) => {
-      ctx.fillStyle = SHELF_TINTS[i % SHELF_TINTS.length];
-      for (const [r, c] of s.cells) ctx.fillRect(c * cell + 1, r * cell + 1, cell - 1, cell - 1);
-      const rows = s.cells.map((p) => p[0]), cols = s.cells.map((p) => p[1]);
+    // shelves: tint by row (A, B, ...), outline around each row, and on every
+    // shelf cell its id (A1) and its item
+    const groups = {};
+    L.shelves.forEach((s) => {
+      const g = s.id.replace(/\d+$/, "");
+      (groups[g] = groups[g] || { cells: [], name: s.name }).cells.push(...s.cells);
+    });
+    Object.keys(groups).sort().forEach((g, i) => {
+      const tint = SHELF_TINTS[i % SHELF_TINTS.length];
+      const cells = groups[g].cells;
+      ctx.fillStyle = tint;
+      for (const [r, c] of cells) ctx.fillRect(c * cell + 1, r * cell + 1, cell - 1, cell - 1);
+      const rows = cells.map((p) => p[0]), cols = cells.map((p) => p[1]);
       const r0 = Math.min(...rows), r1 = Math.max(...rows), c0 = Math.min(...cols), c1 = Math.max(...cols);
       ctx.strokeStyle = "#b9c3d3";
       ctx.lineWidth = 1.5;
       ctx.strokeRect(c0 * cell + 1, r0 * cell + 1, (c1 - c0 + 1) * cell - 2, (r1 - r0 + 1) * cell - 2);
-      ctx.fillStyle = "#3b4252";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.font = `600 ${Math.round(cell * 0.6)}px system-ui, sans-serif`;
-      const midX = (c0 + c1 + 1) / 2 * cell, midY = (r0 + r1 + 1) / 2 * cell;
-      ctx.fillText(s.id, midX, midY - cell * 0.18);
-      ctx.font = `${Math.round(cell * 0.3)}px system-ui, sans-serif`;
-      ctx.fillStyle = "#6b7280";
-      ctx.fillText(s.name || "", midX, midY + cell * 0.38);
     });
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (const s of L.shelves) {
+      for (const [r, c] of s.cells) {
+        ctx.fillStyle = "#3b4252";
+        ctx.font = `700 ${Math.round(cell * 0.3)}px system-ui, sans-serif`;
+        ctx.fillText(s.id, cx(c), cy(r) - cell * 0.12);
+        const item = (s.items && s.items[0]) || "";
+        ctx.fillStyle = "#6b7280";
+        let size = Math.round(cell * 0.2);
+        ctx.font = `${size}px system-ui, sans-serif`;
+        while (size > 7 && ctx.measureText(item).width > cell - 4) {
+          size -= 1;
+          ctx.font = `${size}px system-ui, sans-serif`;
+        }
+        ctx.fillText(item, cx(c), cy(r) + cell * 0.2);
+      }
+    }
 
     // stations
     station(L.chargers, "#fff3cf", "#d99a00", "C");
@@ -382,19 +401,22 @@
       const color = robotColor(robot);
       const radius = cell * 0.34;
 
-      // line to target
+      // planned route (A*): a dashed line through every cell of robot.path
       if ($("targets").checked && robot.target && (!selected || selected === robot.id)) {
         ctx.setLineDash([4, 4]);
         ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.6;
-        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.7;
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round"; ctx.lineJoin = "round";
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(cx(robot.target[1]), cy(robot.target[0]));
+        const route = robot.path && robot.path.length ? robot.path : [robot.target];
+        for (const [pr, pc] of route) ctx.lineTo(cx(pc), cy(pr));
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.globalAlpha = 1;
+        ctx.lineWidth = 1.5;
         ctx.strokeRect(robot.target[1] * cell + 4, robot.target[0] * cell + 4, cell - 8, cell - 8);
+        ctx.globalAlpha = 1;
       }
 
       // selection halo

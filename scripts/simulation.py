@@ -26,7 +26,7 @@ from scripts.classes import (
     FLOOR, CHARGER, PACKING,
 )
 from scripts.orders import OrderGenerator
-from scripts.movement import greedy_step, nearest
+from scripts.movement import greedy_step, nearest, astar, direction_to
 
 
 @dataclass
@@ -39,7 +39,10 @@ class SimConfig:
     block_chance: float = 0.005      # chance a floor cell gets blocked, per tick
     block_ticks: int = 20            # how long a cell stays blocked
     charge_threshold: float = 25.0   # idle robots below this battery go to charge
-    sidestep_chance: float = 0.5     # when stuck, chance to try a random sidestep
+    movement: str = "astar"          # "astar" (plan a route) or "greedy" (old week-3 way, for comparison)
+    sidestep_chance: float = 0.5     # greedy only: when stuck, chance to try a random sidestep
+    replan_after: int = 2            # astar: after waiting this many ticks for a robot, plan around it
+    sidestep_after: int = 6          # astar: after waiting this long, take a random sidestep (breaks deadlocks)
 
 
 class Simulation:
@@ -59,6 +62,9 @@ class Simulation:
         self.chargers = warehouse.cells_of_type(CHARGER)
         self.blocked_until = {}                        # (row, col) -> tick when it is cleared
         self.battery_empty_logged = set()
+        self.waiting = {}                              # robot_id -> ticks waited in a row
+        # where each robot parks when it has nothing to do (its start position)
+        self.home = {rid: r.position for rid, r in warehouse.robots.items()}
 
         # counters for KPIs
         self.breakdowns = 0
@@ -163,6 +169,7 @@ class Simulation:
         robot.order = None
         robot.task = None
         robot.target = None
+        robot.path = []
         robot.status = RobotStatus.IDLE
         order.status = OrderStatus.WAITING
         self.queue.appendleft(order)        # it was waiting longest, so it goes first
@@ -193,6 +200,7 @@ class Simulation:
                 continue                    # all chargers busy: wait
             robot.task = "to_charger"
             robot.target = charger
+            robot.path = []
             self.log("going_to_charge", robot.robot_id, f"battery {robot.battery:.1f}% -> {charger}")
 
     def _free_charger_for(self, robot):
@@ -215,6 +223,8 @@ class Simulation:
             robot = free_robots.pop(0)
             robot.order = order
             robot.task = "to_pickup"
+            robot.target = None
+            robot.path = []
             order.status = OrderStatus.ASSIGNED
             self.log("order_assigned", robot.robot_id, order.order_id)
 
@@ -234,6 +244,8 @@ class Simulation:
                 self._act_to_charger(robot)
             elif robot.task == "charging":
                 self._act_charging(robot)
+            elif robot.task == "to_home":
+                self._act_to_home(robot)
             else:
                 self._act_idle(robot)
 
@@ -246,6 +258,7 @@ class Simulation:
             if picked:
                 robot.task = "to_dropoff"
                 robot.target = tuple(order.dropoff)
+                robot.path = []
                 self.log("picked", robot.robot_id, f"{order.order_id} {order.item} from {shelf.shelf_id}")
             else:
                 # e.g. the shelf ran out: this order can't be done
@@ -256,7 +269,11 @@ class Simulation:
                 self.log("order_failed", robot.robot_id, f"{order.order_id}: {reason}")
             return
 
-        robot.target = self._pick_spot(robot, shelf)
+        # choose where to stand once; only change it if that spot became unusable
+        if robot.target is None or robot.target not in self.warehouse.access_cells(shelf) \
+                or robot.target in self.warehouse.blocked:
+            robot.target = self._pick_spot(robot, shelf)
+            robot.path = []
         self._drive(robot)
 
     def _act_dropoff(self, robot):
@@ -266,6 +283,7 @@ class Simulation:
             if delivered:
                 robot.task = None
                 robot.target = None
+                robot.path = []
                 late = " LATE" if order.is_late(self.tick) else ""
                 self.log("delivered", robot.robot_id,
                          f"{order.order_id} in {order.delivery_time()} ticks{late}")
@@ -273,7 +291,9 @@ class Simulation:
         self._drive(robot)
 
     def _act_to_charger(self, robot):
-        if robot.position == robot.target:
+        # standing on ANY charger already? plug in right here
+        if robot.position == robot.target or self.warehouse.cell_type(robot.position) == CHARGER:
+            robot.target = robot.position
             robot.task = "charging"
             self._act_charging(robot)
             return
@@ -291,16 +311,35 @@ class Simulation:
             robot.target = None
 
     def _act_idle(self, robot):
-        """An idle robot leaves packing stations and chargers free for others."""
+        """
+        An idle robot drives back to its home spot, so it doesn't block aisles,
+        packing stations or chargers while it waits for the next order.
+        """
+        home = self.home.get(robot.robot_id)
+        if self.config.movement == "astar" and home is not None:
+            if robot.position != home and home not in self.warehouse.blocked:
+                robot.task = "to_home"
+                robot.target = home
+                robot.path = []
+                self._act_to_home(robot)
+            return
+
+        # greedy (week 3): only step off stations
         cell = self.warehouse.cell_type(robot.position)
         if cell not in (PACKING, CHARGER):
             return
         for direction in ("left", "up", "down", "right"):
             moved, _ = robot.move(direction, self.warehouse)
-            if moved:
-                if self.warehouse.cell_type(robot.position) == FLOOR:
-                    return
-        # could not step off this tick; try again next tick
+            if moved and self.warehouse.cell_type(robot.position) == FLOOR:
+                return
+
+    def _act_to_home(self, robot):
+        if robot.position == robot.target:
+            robot.task = None
+            robot.target = None
+            robot.path = []
+            return
+        self._drive(robot)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -311,7 +350,8 @@ class Simulation:
         return [self.warehouse.robots[rid] for rid in sorted(self.warehouse.robots)]
 
     def _is_free(self, robot):
-        return (robot.order is None and robot.task is None
+        """Free = no order and nothing important to do (driving home doesn't count)."""
+        return (robot.order is None and robot.task in (None, "to_home")
                 and robot.status != RobotStatus.ERROR)
 
     def _pick_spot(self, robot, shelf):
@@ -323,26 +363,95 @@ class Simulation:
         return nearest(robot.position, free or spots)
 
     def _drive(self, robot):
+        """Move the robot one step towards robot.target."""
+        if self.config.movement == "greedy":
+            self._drive_greedy(robot)
+        else:
+            self._drive_astar(robot)
+
+    # ----- A*: plan the whole route, then follow it step by step -----
+
+    def _drive_astar(self, robot):
+        wh = self.warehouse
+        if robot.position == robot.target:
+            robot.path = []
+            return
+
+        # (re)plan if there is no route yet, or it leads somewhere else
+        if not robot.path or robot.path[-1] != robot.target:
+            self._plan(robot)
+            if not robot.path:
+                self._count_stuck(robot, "no route")
+                return
+
+        next_cell = robot.path[0]
+        moved, reason = robot.move(direction_to(robot.position, next_cell), wh)
+        if moved:
+            robot.path.pop(0)
+            self.waiting[robot.robot_id] = 0
+            return
+
+        self._count_stuck(robot, reason)
+        if reason == "battery empty" or robot.status == RobotStatus.ERROR:
+            return
+
+        waited = self.waiting.get(robot.robot_id, 0)
+        if reason.startswith("occupied"):
+            # Another robot is in the way. It may move on its own, so wait a little,
+            # then plan a route around it, and if still stuck, sidestep randomly.
+            if waited >= self.config.sidestep_after:
+                self._random_sidestep(robot)
+                self.waiting[robot.robot_id] = 0
+                robot.path = []
+            elif waited >= self.config.replan_after:
+                if robot.task == "to_pickup" and next_cell == robot.target:
+                    # our pick spot is taken: try another spot at the same shelf
+                    shelf = wh.get_shelf(robot.order.pickup)
+                    robot.target = self._pick_spot(robot, shelf)
+                self._plan(robot, avoid_robots=True)
+        else:
+            # a blocked cell appeared on the route: plan a new one right away
+            self._plan(robot)
+
+    def _plan(self, robot, avoid_robots=False):
+        avoid = None
+        if avoid_robots:
+            avoid = {pos for pos, rid in self.warehouse.occupied.items() if rid != robot.robot_id}
+        path = astar(self.warehouse, robot.position, robot.target, avoid)
+        if path is None and avoid_robots:
+            path = astar(self.warehouse, robot.position, robot.target)   # no way around: keep the normal route
+        robot.path = path or []
+        if path:
+            self.log("route_planned", robot.robot_id, f"{robot.position} -> {robot.target}, {len(path)} steps")
+
+    def _count_stuck(self, robot, reason):
+        self.stuck_steps += 1
+        self.waiting[robot.robot_id] = self.waiting.get(robot.robot_id, 0) + 1
+        if reason == "battery empty" and robot.robot_id not in self.battery_empty_logged:
+            self.battery_empty_logged.add(robot.robot_id)
+            self.log("battery_empty", robot.robot_id, f"stuck at {robot.position}")
+
+    def _random_sidestep(self, robot):
+        directions = ["up", "down", "left", "right"]
+        self.rng.shuffle(directions)
+        for direction in directions:
+            stepped, _ = robot.move(direction, self.warehouse)
+            if stepped:
+                return True
+        return False
+
+    # ----- Greedy (week 3), kept so we can compare -----
+
+    def _drive_greedy(self, robot):
         moved, reason = greedy_step(robot, robot.target, self.warehouse)
         if moved:
             return
-
-        self.stuck_steps += 1
+        self._count_stuck(robot, reason)
         if reason == "battery empty":
-            if robot.robot_id not in self.battery_empty_logged:
-                self.battery_empty_logged.add(robot.robot_id)
-                self.log("battery_empty", robot.robot_id, f"stuck at {robot.position}")
             return
-
-        # Blocked: take a random sidestep to break the jam. Without this,
-        # robots facing each other would wait forever (a deadlock).
+        # Blocked: take a random sidestep to break the jam.
         if self.rng.random() < self.config.sidestep_chance:
-            directions = ["up", "down", "left", "right"]
-            self.rng.shuffle(directions)
-            for direction in directions:
-                stepped, _ = robot.move(direction, self.warehouse)
-                if stepped:
-                    return
+            self._random_sidestep(robot)
 
     # ------------------------------------------------------------------
     # KPIs

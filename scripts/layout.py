@@ -9,8 +9,14 @@ Usage:
 Map symbols:
     #  wall          .  floor
     C  charger       P  packing station     D  loading dock
-    a-z  shelf unit: all cells with the same lowercase letter form one shelf
-         (a -> shelf "A", b -> shelf "B", ...)
+    a-z  shelf row. Every cell with the same letter belongs to that row.
+         Cells are numbered left to right (then top to bottom):
+         the first "a" is shelf A1, the next is A2, and so on.
+         Each cell is its own shelf and holds ONE item.
+
+In the "shelves" section, each row lists its items in the same order as its
+cells: the first item goes on A1, the second on A2, ...
+"stock_per_shelf" is how many units every shelf starts with.
 """
 
 import json
@@ -19,8 +25,6 @@ from scripts.classes import (
     Warehouse, Shelf, Robot,
     WALL, FLOOR, CHARGER, PACKING, DOCK,
 )
-
-STATION_SYMBOLS = {WALL, FLOOR, CHARGER, PACKING, DOCK}
 
 
 class LayoutError(Exception):
@@ -53,7 +57,7 @@ def build_warehouse(data):
     wh = Warehouse(height=height, width=width)
 
     # --- Read the map: stations, walls, and collect shelf cells -------------
-    shelf_cells = {}          # "A" -> [(row, col), ...]
+    shelf_cells = {}          # "A" -> [(row, col), ...] in reading order (left to right, top to bottom)
     for r, row in enumerate(rows):
         for c, symbol in enumerate(row):
             if symbol.islower():
@@ -71,45 +75,57 @@ def build_warehouse(data):
             else:
                 raise LayoutError(f"Unknown symbol '{symbol}' at row {r}, column {c}.")
 
-    # --- Check 2: every shelf on the map is described, and the other way ----
+    # --- Check 2: every shelf row on the map is described, and the other way
     shelf_info = data.get("shelves", {})
     on_map = set(shelf_cells)
     described = set(shelf_info)
     if on_map - described:
-        raise LayoutError(f"Shelves on the map but missing in 'shelves': {sorted(on_map - described)}")
+        raise LayoutError(f"Shelf rows on the map but missing in 'shelves': {sorted(on_map - described)}")
     if described - on_map:
-        raise LayoutError(f"Shelves in 'shelves' but not on the map: {sorted(described - on_map)}")
+        raise LayoutError(f"Shelf rows in 'shelves' but not on the map: {sorted(described - on_map)}")
 
-    # --- Create the shelves -------------------------------------------------
-    for shelf_id in sorted(shelf_cells):
-        info = shelf_info[shelf_id]
-        items = info.get("items", {})
+    # --- Check 3: stock is a whole number, zero or more ---------------------
+    stock = data.get("stock_per_shelf", 20)
+    if not isinstance(stock, int) or stock < 0:
+        raise LayoutError(f"'stock_per_shelf' must be a whole number >= 0, got {stock!r}.")
 
-        # Check 3: quantities are whole numbers, zero or more
-        for item, qty in items.items():
-            if not isinstance(qty, int) or qty < 0:
-                raise LayoutError(f"Shelf {shelf_id}: quantity of '{item}' must be a whole number >= 0, got {qty!r}.")
+    # --- Create one shelf per cell: A1, A2, ... -----------------------------
+    seen_items = {}
+    for row_id in sorted(shelf_cells):
+        cells = shelf_cells[row_id]
+        info = shelf_info[row_id]
+        items = info.get("items", [])
 
-        shelf = Shelf(shelf_id, shelf_cells[shelf_id], dict(items), name=info.get("name", ""))
-        wh.add_shelf(shelf)
+        # Check 4: one item per cell
+        if len(items) != len(cells):
+            raise LayoutError(
+                f"Shelf row {row_id} has {len(cells)} cells on the map but {len(items)} items. "
+                "Give exactly one item per cell."
+            )
 
-        # Check 4: a robot must be able to reach the shelf from somewhere
-        if not wh.access_cells(shelf):
-            raise LayoutError(f"Shelf {shelf_id} has no free cell next to it, so no robot can reach it.")
+        for number, (cell, item) in enumerate(zip(cells, items), start=1):
+            shelf_id = f"{row_id}{number}"
 
-    # Check 5: an item should live on only one shelf (keeps orders simple)
-    seen = {}
-    for shelf in wh.shelves.values():
-        for item in shelf.items:
-            if item in seen:
-                raise LayoutError(f"Item '{item}' is on shelf {seen[item]} and shelf {shelf.shelf_id}. Use one shelf per item.")
-            seen[item] = shelf.shelf_id
+            # Check 5: every item is on exactly one shelf
+            if item in seen_items:
+                raise LayoutError(
+                    f"Item '{item}' is on shelf {seen_items[item]} and shelf {shelf_id}. "
+                    "Each item must be on one shelf only."
+                )
+            seen_items[item] = shelf_id
+
+            shelf = Shelf(shelf_id, [cell], {item: stock}, name=info.get("name", ""))
+            wh.add_shelf(shelf)
+
+            # Check 6: a robot must be able to reach every shelf
+            if not wh.access_cells(shelf):
+                raise LayoutError(f"Shelf {shelf_id} has no free cell next to it, so no robot can reach it.")
 
     # --- Create the robots --------------------------------------------------
     for entry in data.get("robots", []):
         robot_id = entry["id"]
         position = tuple(entry["position"])
-        # Check 6: robots start inside, on a drivable cell, one per cell, unique ids
+        # Check 7: robots start inside, on a drivable cell, one per cell, unique ids
         try:
             wh.add_robot(Robot(robot_id, position))
         except ValueError as error:
@@ -121,11 +137,17 @@ def build_warehouse(data):
 # Quick look at the layout:  python -m scripts.layout
 if __name__ == "__main__":
     wh = load_layout("layouts/main_warehouse.json")
-    print(f"Warehouse: {wh.height} rows x {wh.width} columns")
+    print(f"Warehouse: {wh.height} rows x {wh.width} columns, {len(wh.shelves)} shelves")
     wh.print_map()
-    for shelf in wh.shelves.values():
-        print(f"{shelf.shelf_id} ({shelf.name}): {len(shelf.cells)} cells, "
-              f"{len(wh.access_cells(shelf))} pick spots, items {shelf.items}")
+    current_row = None
+    for shelf_id in sorted(wh.shelves, key=lambda s: (s[0], int(s[1:]))):
+        shelf = wh.shelves[shelf_id]
+        if shelf_id[0] != current_row:
+            current_row = shelf_id[0]
+            print(f"\n{current_row} ({shelf.name}):", end="")
+        item, qty = next(iter(shelf.items.items()))
+        print(f"  {shelf_id}={item}({qty})", end="")
+    print("\n")
     print("Chargers:", wh.cells_of_type(CHARGER))
     print("Packing: ", wh.cells_of_type(PACKING))
     print("Docks:   ", wh.cells_of_type(DOCK))

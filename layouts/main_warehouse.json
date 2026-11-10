@@ -1,5 +1,5 @@
 {
-  "name": "Main warehouse v1",
+  "name": "Main warehouse v2 - shelf rows",
 
   "legend": {
     "#": "wall",
@@ -7,36 +7,43 @@
     "C": "charger",
     "P": "packing station",
     "D": "loading dock",
-    "a-z": "shelf unit: every cell with the same lowercase letter belongs to that shelf (a = shelf A)"
+    "a-z": "shelf row: every cell with the same lowercase letter belongs to that row. Cells are numbered left to right: the first 'a' is shelf A1, the next A2, and so on. Each shelf holds one item."
   },
 
   "map": [
     "#################",
     "#..............C#",
-    "#.aaaaa..bbbbb.C#",
-    "#.aaaaa..bbbbb.C#",
-    "#.aaaaa..bbbbb..#",
+    "#.aaaaa..eeeee.C#",
+    "#..............C#",
+    "#.bbbbb..fffff..#",
     "#..............P#",
-    "#..............P#",
-    "#.ccccc..ddddd..#",
-    "#.ccccc..ddddd..#",
-    "#.ccccc..ddddd..#",
+    "#.ccccc..ggggg.P#",
+    "#...............#",
+    "#.ddddd..hhhhh..#",
+    "#...............#",
     "#...............#",
     "#DDD............#",
     "#################"
   ],
 
+  "stock_per_shelf": 20,
+
   "shelves": {
-    "A": {"name": "Fruit",  "items": {"apples": 30, "bananas": 30, "oranges": 30}},
-    "B": {"name": "Grains", "items": {"rice": 30, "pasta": 30, "flour": 30}},
-    "C": {"name": "Dairy",  "items": {"milk": 30, "cheese": 30, "yogurt": 30}},
-    "D": {"name": "Snacks", "items": {"chips": 30, "cookies": 30, "chocolate": 30}}
+    "A": {"name": "Fruit",      "items": ["apples", "bananas", "oranges", "grapes", "pears"]},
+    "B": {"name": "Vegetables", "items": ["carrots", "potatoes", "onions", "tomatoes", "peppers"]},
+    "C": {"name": "Grains",     "items": ["rice", "pasta", "flour", "oats", "lentils"]},
+    "D": {"name": "Dairy",      "items": ["milk", "cheese", "yogurt", "butter", "cream"]},
+    "E": {"name": "Snacks",     "items": ["chips", "cookies", "chocolate", "crackers", "nuts"]},
+    "F": {"name": "Drinks",     "items": ["water", "juice", "soda", "coffee", "tea"]},
+    "G": {"name": "Bakery",     "items": ["bread", "croissants", "bagels", "muffins", "cake"]},
+    "H": {"name": "Household",  "items": ["soap", "shampoo", "toothpaste", "tissues", "detergent"]}
   },
 
   "robots": [
     {"id": "R1", "position": [10, 4]},
     {"id": "R2", "position": [10, 6]},
-    {"id": "R3", "position": [10, 8]}
-    
+    {"id": "R3", "position": [10, 8]},
+    {"id": "R4", "position": [10, 10]},
+    {"id": "R5", "position": [10, 12]}
   ]
 }
