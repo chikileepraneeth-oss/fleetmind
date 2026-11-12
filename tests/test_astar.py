@@ -1,5 +1,5 @@
 """
-Tests for week 4: A* path planning and robots following their routes.
+Tests for A* path planning and robots following their routes.
 """
 
 from scripts.classes import Warehouse, Robot, Shelf

@@ -10,7 +10,7 @@ To add your own scenario, copy one entry and change the numbers.
 SCENARIOS = {
     "normal": {
         "title": "Normal day",
-        "description": "Default settings, robots plan routes with A*.",
+        "description": "Default settings: smart assignment, opportunity charging, A* routes with bookings.",
         "seed": 42,
         "ticks": 500,
         "config": {},
@@ -61,7 +61,7 @@ SCENARIOS = {
     },
     "normal_greedy": {
         "title": "Normal day - old greedy movement",
-        "description": "Same as Normal day, but robots use week 3 greedy movement. Compare with Normal day.",
+        "description": "Same as Normal day, but robots use the old greedy movement. Compare with Normal day.",
         "seed": 42,
         "ticks": 500,
         "config": {"movement": "greedy"},
@@ -73,5 +73,27 @@ SCENARIOS = {
         "ticks": 300,
         "config": {"order_rate": 0.05, "breakdown_chance": 0, "drop_chance": 0, "movement": "greedy"},
         "robots": 1,
+    },
+    "astar_only": {
+        "title": "Normal day - plain A* (no bookings)",
+        "description": "Same as Normal day, but with plain A* movement (no bookings), first-free assignment and simple charging. Compare with Normal day.",
+        "seed": 42,
+        "ticks": 500,
+        "config": {"movement": "astar", "assignment": "first_free", "charging": "simple"},
+    },
+    "smart_charging": {
+        "title": "Normal day - smart charging (old)",
+        "description": "Same as Normal day, but with the older smart charging: robots on a charger can't take orders, and only top up below 70%. Compare with Normal day.",
+        "seed": 42,
+        "ticks": 500,
+        "config": {"charging": "smart"},
+    },
+    "stress_20": {
+        "title": "Stress test - 20 robots",
+        "description": "20 robots and an order every 2 ticks. Watch the waiting zones, bookings and deadlock handling.",
+        "seed": 1,
+        "ticks": 600,
+        "config": {"order_rate": 0.5},
+        "robots": 20,
     },
 }

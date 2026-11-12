@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FleetMind – Live</title>
+<style>
+  /* Same look as the replay viewer (viewer/index.html) */
+  :root {
+    --bg: #eef0f3;
+    --panel: #ffffff;
+    --ink: #1d2128;
+    --muted: #6b7280;
+    --line: #dde1e7;
+    --accent: #2f6fdf;
+
+    /* robot task colors (draw.js reads these) */
+    --idle: #8a8f98;
+    --to-pickup: #2f6fdf;
+    --to-dropoff: #1f9d55;
+    --charge: #d99a00;
+    --error: #d64545;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  select {
+    font: inherit; padding: 6px 10px; border: 1px solid var(--line);
+    border-radius: 8px; background: #fff;
+  }
+  #description { color: var(--muted); flex: 1; min-width: 240px; }
+  .conn { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: #f1f3f6; color: var(--muted); white-space: nowrap; }
+  .conn.live { background: #e6f4ec; color: #1f7a45; }
+  .conn.off { background: #fde8e8; color: #b03030; }
+
+  /* KPI bar */
+  .kpibar {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px;
+    padding: 16px 20px 0;
+  }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  .kpi b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--muted); font-size: 12px; }
+  .kpi.robots b { font-size: 15px; padding: 3px 0 2px; }
+  .kpi.robots i { font-style: normal; display: inline-block; margin-right: 8px; }
+  .kpi.robots i::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; background: var(--c); }
+
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 16px 20px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .card h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .8px;
+    color: var(--muted); margin: 0 0 10px;
+  }
+
+  #map { display: block; width: 100%; height: auto; cursor: pointer; }
+
+  .controls { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  button {
+    font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 8px;
+    padding: 6px 12px; cursor: pointer; min-width: 40px;
+  }
+  button:hover { border-color: #b9c0ca; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); min-width: 90px; }
+  .tick-label { font-variant-numeric: tabular-nums; min-width: 90px; font-weight: 600; }
+  .speed { display: flex; align-items: center; gap: 6px; margin-left: auto; color: var(--muted); }
+  .speed output { min-width: 56px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  label.toggle { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; color: var(--muted); font-size: 13px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+
+  .side { display: flex; flex-direction: column; gap: 16px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+  tr:first-child td { border-top: 0; }
+  tr.selected td { background: #f1f5fe; }
+  tr { cursor: pointer; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .battery { width: 64px; height: 8px; background: #e7e9ee; border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; }
+  .battery div { height: 100%; }
+  .small { color: var(--muted); font-size: 12px; }
+
+  #follow > div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  #follow > div:first-child { border-top: 0; }
+  #follow b { text-align: right; }
+
+  #events { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow: auto; font-size: 13px; }
+  #events li { padding: 4px 0; border-top: 1px solid var(--line); display: flex; gap: 8px; }
+  #events li:first-child { border-top: 0; }
+  #events .t { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 34px; }
+  #events .r { font-weight: 600; min-width: 24px; }
+
+  #toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: #2b2f36; color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px;
+    opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>FleetMind <span>live</span></h1>
+  <select id="scenario" aria-label="Scenario"></select>
+  <div id="description"></div>
+  <span class="conn" id="conn">connecting…</span>
+  <a href="/viewer/index.html" style="color:var(--accent);text-decoration:none;white-space:nowrap">Replay viewer →</a>
+</header>
+
+<section class="kpibar">
+  <div class="kpi"><b id="k-tick">0</b><span>tick</span></div>
+  <div class="kpi"><b id="k-throughput">0</b><span>delivered / 100 ticks</span></div>
+  <div class="kpi"><b id="k-delivered">0</b><span>delivered</span></div>
+  <div class="kpi"><b id="k-avg">–</b><span>avg delivery (ticks)</span></div>
+  <div class="kpi"><b id="k-ontime">–</b><span>on time</span></div>
+  <div class="kpi"><b id="k-queue">0</b><span>orders waiting</span></div>
+  <div class="kpi robots" style="grid-column: span 2">
+    <b>
+      <i style="--c:var(--to-pickup)" id="k-busy">0 busy</i>
+      <i style="--c:var(--idle)" id="k-idle">0 idle</i>
+      <i style="--c:var(--charge)" id="k-charging">0 charging</i>
+      <i style="--c:var(--error)" id="k-broken">0 broken</i>
+    </b>
+    <span>robots</span>
+  </div>
+</section>
+
+<main>
+  <section>
+    <div class="card">
+      <canvas id="map"></canvas>
+
+      <div class="controls">
+        <button id="play" class="primary" title="Start / pause (space)">▶ Start</button>
+        <button id="step" title="One tick (→)">Step ▸</button>
+        <button id="reset" title="Back to tick 0 (same seed)">⟲ Reset</button>
+        <span class="tick-label" id="tick-label">Tick 0</span>
+        <label class="toggle"><input type="checkbox" id="trails" checked> Trails</label>
+        <label class="toggle"><input type="checkbox" id="routes" checked> Routes</label>
+        <div class="speed">
+          Speed <input type="range" id="speed" min="1" max="60" value="6">
+          <output id="speed-out">6 t/s</output>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span><i style="background:var(--idle)"></i>Idle</span>
+        <span><i style="background:var(--to-pickup)"></i>Going to shelf</span>
+        <span><i style="background:var(--to-dropoff)"></i>Carrying to packing</span>
+        <span><i style="background:var(--charge)"></i>Charging</span>
+        <span><i style="background:var(--error)"></i>Broken</span>
+        <span>Dashed line = planned route · Ring = battery · X = blocked cell</span>
+      </div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="card" id="follow-card" hidden>
+      <h2>Following <span id="follow-id"></span> <span class="small">(click it again to stop)</span></h2>
+      <div id="follow"></div>
+    </div>
+
+    <div class="card">
+      <h2>Robots <span class="small">(click one to follow it)</span></h2>
+      <table id="robots"></table>
+    </div>
+
+    <div class="card">
+      <h2>Latest events</h2>
+      <ul id="events"></ul>
+    </div>
+  </aside>
+</main>
+
+<div id="toast"></div>
+
+<script src="/viewer/draw.js"></script>
+<script>
+(() => {
+  const { robotColor, TASK_LABEL } = FleetDraw;
+  const $ = (id) => document.getElementById(id);
+  const canvas = $("map"), map = FleetDraw.create(canvas);
+
+  const TRAIL_TICKS = 15;      // how many past positions a trail shows
+  const KEEP_EVENTS = 300;     // how many events the page remembers
+
+  let ws = null;
+  let layout = null;           // from "hello"
+  let prev = null, cur = null; // the last two "state" messages
+  let arrivedAt = 0;           // when cur arrived (for smooth sliding)
+  let events = [];             // [tick, robot, event, details], oldest first
+  let trails = {};             // robot id -> last positions
+  let selected = null;         // followed robot id
+
+  // ------------------------------------------------------------------
+  // Talking to the server
+  // ------------------------------------------------------------------
+  function connect() {
+    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => setConn("live", "live");
+    ws.onclose = () => {
+      setConn("off", "disconnected – retrying…");
+      setTimeout(connect, 1000);          // server restarted? keep trying
+    };
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "hello") onHello(msg);
+      else if (msg.type === "state") onState(msg);
+      else if (msg.type === "error") toast(msg.message);
+    };
+  }
+
+  // Every button just sends a command; the screen changes when the server answers.
+  function send(command) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(command));
+  }
+
+  function onHello(msg) {
+    layout = msg.layout;
+    prev = cur = null;
+    trails = {};
+    events = msg.events.slice();
+
+    const select = $("scenario");
+    select.innerHTML = msg.scenarios.map((s) =>
+      `<option value="${s.key}">${esc(s.title)}</option>`).join("");
+    select.value = msg.scenario;
+    const spec = msg.scenarios.find((s) => s.key === msg.scenario);
+    $("description").textContent = `${spec ? spec.description : ""}  (seed ${msg.seed})`;
+    resize();
+  }
+
+  function onState(msg) {
+    // keep the previous state for smooth sliding, unless time went backwards (reset)
+    prev = cur && msg.tick === cur.tick + 1 ? cur : msg;
+    cur = msg;
+    arrivedAt = performance.now();
+
+    events.push(...msg.events);
+    if (events.length > KEEP_EVENTS) events = events.slice(-KEEP_EVENTS);
+
+    for (const r of msg.robots) {
+      const t = trails[r.id] = trails[r.id] || [];
+      const last = t[t.length - 1];
+      if (!last || last[0] !== r.pos[0] || last[1] !== r.pos[1] || prev === msg) t.push(r.pos);
+      if (t.length > TRAIL_TICKS) t.shift();
+    }
+    if (selected && !msg.robots.some((r) => r.id === selected)) selected = null;
+
+    renderControls();
+    renderKpis();
+    renderPanel();
+  }
+
+  // ------------------------------------------------------------------
+  // Drawing (the map itself is drawn by draw.js)
+  // ------------------------------------------------------------------
+  function resize() {
+    if (layout) map.resize(layout, canvas.parentElement.clientWidth - 28);
+  }
+
+  function draw(now) {
+    if (layout && cur) {
+      // how far between prev and cur we are: 0 = just arrived, 1 = done sliding
+      const frac = cur.running ? Math.min(1, (now - arrivedAt) / (1000 / cur.speed)) : 1;
+
+      map.drawStatic(layout);
+      map.drawBlocked(cur.blocked);
+      if ($("trails").checked) {
+        for (const r of cur.robots) {
+          if (selected && r.id !== selected) continue;
+          map.drawTrail(trails[r.id] || [], r, !!selected);
+        }
+      }
+      for (const r of cur.robots) {
+        const before = prev.robots.find((x) => x.id === r.id) || r;
+        const row = before.pos[0] + (r.pos[0] - before.pos[0]) * frac;
+        const col = before.pos[1] + (r.pos[1] - before.pos[1]) * frac;
+        map.drawRobot(r, row, col, {
+          showRoute: $("routes").checked && (!selected || selected === r.id),
+          selected: r.id === selected,
+        });
+      }
+    }
+    requestAnimationFrame(draw);
+  }
+
+  // ------------------------------------------------------------------
+  // Side panel and KPI bar
+  // ------------------------------------------------------------------
+  function renderControls() {
+    $("play").textContent = cur.running ? "❚❚ Pause" : "▶ Start";
+    $("tick-label").textContent = `Tick ${cur.tick}`;
+    if (document.activeElement !== $("speed")) $("speed").value = cur.speed;   // another tab may have changed it
+    $("speed-out").textContent = `${cur.speed} t/s`;
+  }
+
+  function renderKpis() {
+    const k = cur.kpis;
+    $("k-tick").textContent = cur.tick;
+    $("k-throughput").textContent = k.throughput.toFixed(1);
+    $("k-delivered").textContent = k.orders_delivered;
+    $("k-avg").textContent = k.avg_delivery_time ?? "–";
+    $("k-ontime").textContent = k.on_time_rate == null ? "–" : `${(k.on_time_rate * 100).toFixed(0)}%`;
+    $("k-queue").textContent = k.orders_waiting;
+    $("k-busy").textContent = `${k.robots_busy} busy`;
+    $("k-idle").textContent = `${k.robots_idle} idle`;
+    $("k-charging").textContent = `${k.robots_charging} charging`;
+    $("k-broken").textContent = `${k.robots_broken} broken`;
+  }
+
+  function taskLabel(r) {
+    return r.status === "error" ? `Broken (${r.repair} left)` : TASK_LABEL[r.task] || r.task;
+  }
+
+  function renderPanel() {
+    // robot table
+    $("robots").innerHTML = cur.robots.map((r) => {
+      const what = r.carrying ? `${r.carrying} · ${r.order}` : (r.order || "");
+      const batColor = r.battery < 25 ? "var(--error)" : "#5b6475";
+      return `<tr data-id="${r.id}" class="${r.id === selected ? "selected" : ""}">
+        <td><span class="dot" style="background:${robotColor(r)}"></span><b>${r.id}</b></td>
+        <td>${taskLabel(r)}<div class="small">${esc(what)}</div></td>
+        <td style="text-align:right"><span class="battery"><div style="width:${r.battery}%;background:${batColor}"></div></span>
+          <div class="small">${r.battery.toFixed(0)}%</div></td>
+      </tr>`;
+    }).join("");
+
+    // the followed robot, in detail
+    const r = selected && cur.robots.find((x) => x.id === selected);
+    $("follow-card").hidden = !r;
+    if (r) {
+      $("follow-id").textContent = r.id;
+      const rows = [
+        ["Doing", taskLabel(r)],
+        ["Position", `(${r.pos.join(", ")})`],
+        ["Battery", `${r.battery.toFixed(1)}%`],
+        ["Order", r.order || "–"],
+        ["Carrying", r.carrying || "–"],
+        ["Heading to", r.target ? `(${r.target.join(", ")})` : "–"],
+        ["Route left", r.path.length ? `${r.path.length} steps` : "–"],
+      ];
+      $("follow").innerHTML = rows.map(([a, b]) => `<div><span>${a}</span><b>${esc(String(b))}</b></div>`).join("");
+    }
+
+    // latest events, newest first (only the followed robot's, if one is followed)
+    const list = [];
+    for (let i = events.length - 1; i >= 0 && list.length < 40; i--) {
+      const [tk, robot, name, details] = events[i];
+      if (selected && robot !== selected) continue;
+      list.push(`<li><span class="t">${tk}</span><span class="r">${esc(robot || "")}</span><span>${esc(name.replace(/_/g, " "))} <span class="small">${esc(details)}</span></span></li>`);
+    }
+    $("events").innerHTML = list.join("") || `<li class="small">Nothing yet. Press Start.</li>`;
+  }
+
+  // ------------------------------------------------------------------
+  // Small helpers
+  // ------------------------------------------------------------------
+  function esc(text) {
+    return String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  function setConn(cls, text) {
+    $("conn").className = `conn ${cls}`;
+    $("conn").textContent = text;
+  }
+
+  let toastTimer = null;
+  function toast(text) {
+    $("toast").textContent = text;
+    $("toast").classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $("toast").classList.remove("show"), 2500);
+  }
+
+  function follow(id) {
+    selected = id === selected ? null : id;
+    if (cur) renderPanel();
+  }
+
+  // ------------------------------------------------------------------
+  // Controls
+  // ------------------------------------------------------------------
+  $("play").addEventListener("click", () => send({ type: cur && cur.running ? "pause" : "start" }));
+  $("step").addEventListener("click", () => send({ type: "step" }));
+  $("reset").addEventListener("click", () => send({ type: "reset" }));
+  $("scenario").addEventListener("change", (e) => send({ type: "scenario", key: e.target.value }));
+  $("speed").addEventListener("input", (e) => {
+    $("speed-out").textContent = `${e.target.value} t/s`;
+    send({ type: "speed", value: Number(e.target.value) });
+  });
+
+  canvas.addEventListener("click", (e) => { if (cur) follow(map.robotAt(e, cur.robots)); });
+  $("robots").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr");
+    if (tr) follow(tr.dataset.id);
+  });
+
+  // Keyboard: space = start/pause, right arrow = one step
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+    if (e.code === "Space") { e.preventDefault(); $("play").click(); }
+    if (e.code === "ArrowRight") send({ type: "step" });
+  });
+
+  window.addEventListener("resize", resize);
+
+  connect();
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

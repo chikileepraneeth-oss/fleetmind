@@ -152,3 +152,38 @@ if __name__ == "__main__":
     print("Packing: ", wh.cells_of_type(PACKING))
     print("Docks:   ", wh.cells_of_type(DOCK))
     print("Robots:  ", list(wh.robots))
+
+
+def add_robots(warehouse, total):
+    """
+    Add robots until the warehouse has `total` robots (R1, R2, ...).
+
+    New robots start (and later park) on floor cells that block nobody:
+    not next to a shelf (those are pick spots in the aisles) and not next to
+    a charger or packing station. Bottom rows first, spread out.
+    """
+    from scripts.classes import FLOOR, SHELF, CHARGER, PACKING, DIRECTIONS
+
+    def next_to(cell, kinds):
+        for d_row, d_col in DIRECTIONS.values():
+            n = (cell[0] + d_row, cell[1] + d_col)
+            if warehouse.is_inside(n) and warehouse.cell_type(n) in kinds:
+                return True
+        return False
+
+    floor = [(r, c) for r in range(warehouse.height - 1, -1, -1) for c in range(warehouse.width)
+             if warehouse.cell_type((r, c)) == FLOOR and (r, c) not in warehouse.occupied]
+    parking = [cell for cell in floor if not next_to(cell, {SHELF, CHARGER, PACKING})]
+    others = [cell for cell in floor if cell not in parking]
+    spread = parking[::2] + parking[1::2] + others
+
+    number = 1
+    while len(warehouse.robots) < total:
+        robot_id = f"R{number}"
+        number += 1
+        if robot_id in warehouse.robots:
+            continue
+        if not spread:
+            raise LayoutError(f"No free floor left for {total} robots.")
+        warehouse.add_robot(Robot(robot_id, spread.pop(0)))
+    return warehouse

@@ -162,7 +162,7 @@ class Robot:
         self.status = RobotStatus.IDLE
         self.carrying = None              # item name, or None
         self.order = None                 # the Order it is working on, or None
-        self.path = []                    # planned list of (row, col) steps (used from week 4)
+        self.path = []                    # planned list of (row, col) steps (used by A*)
         self.speed = speed                # cells per tick (keep 1 for now)
         self.repair_left = 0              # ticks until repaired (0 = not broken)
         self.task = None                  # what it is doing: "to_pickup", "to_dropoff", "to_charger", "charging"
@@ -377,7 +377,7 @@ class Warehouse:
     def access_cells(self, shelf):
         """
         All drivable cells next to a shelf unit: the places a robot can stand
-        to pick from it. Useful as movement targets in week 3.
+        to pick from it. Useful as movement targets.
         """
         result = []
         for row, col in shelf.cells:

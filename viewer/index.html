@@ -132,7 +132,7 @@
       </div>
 
       <div id="timeline-wrap">
-        <canvas id="strip" title="Red = breakdown, orange = dropped item, grey = blocked cell, green = delivery"></canvas>
+        <canvas id="strip" title="Red = breakdown, purple = deadlock resolved, orange = dropped item, grey = blocked cell, green = delivery"></canvas>
         <input type="range" id="timeline" min="0" max="0" value="0" aria-label="Timeline">
       </div>
 
@@ -178,6 +178,7 @@
 </main>
 
 <script src="recordings.js"></script>
+<script src="draw.js"></script>
 <script>
 (() => {
   // ------------------------------------------------------------------
@@ -190,28 +191,11 @@
     return;
   }
 
-  const css = getComputedStyle(document.documentElement);
-  const COLOR = {
-    idle: css.getPropertyValue("--idle").trim(),
-    to_pickup: css.getPropertyValue("--to-pickup").trim(),
-    to_dropoff: css.getPropertyValue("--to-dropoff").trim(),
-    to_home: css.getPropertyValue("--idle").trim(),
-    to_charger: css.getPropertyValue("--charge").trim(),
-    charging: css.getPropertyValue("--charge").trim(),
-    error: css.getPropertyValue("--error").trim(),
-  };
-  const TASK_LABEL = {
-    idle: "Idle",
-    to_home: "Going home",
-    to_pickup: "Going to shelf",
-    to_dropoff: "Carrying",
-    to_charger: "Going to charge",
-    charging: "Charging",
-  };
-  const SHELF_TINTS = ["#e8eefc", "#e6f4ec", "#fdf1df", "#f3e8fb", "#fde8e8", "#e6f3f6"];
+  // The map drawing lives in draw.js (shared with the live website)
+  const { robotColor, TASK_LABEL } = FleetDraw;
 
   const $ = (id) => document.getElementById(id);
-  const canvas = $("map"), ctx = canvas.getContext("2d");
+  const canvas = $("map"), map = FleetDraw.create(canvas);
   const strip = $("strip"), sctx = strip.getContext("2d");
 
   let rec = null;          // current recording
@@ -220,7 +204,6 @@
   let speed = 6;           // ticks per second
   let selected = null;     // selected robot id
   let lastFrameTime = null;
-  let cell = 40;           // pixel size of one grid cell
   let eventIndexByTick = []; // events[0 .. eventIndexByTick[tick]] happened at or before tick
 
   // Fill the scenario list
@@ -260,16 +243,9 @@
   // Drawing the map
   // ------------------------------------------------------------------
   function resize() {
-    const L = rec.layout;
-    const width = canvas.parentElement.clientWidth - 28;
-    cell = Math.max(18, Math.floor(width / L.width));
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = L.width * cell * dpr;
-    canvas.height = L.height * cell * dpr;
-    canvas.style.width = `${L.width * cell}px`;
-    canvas.style.height = `${L.height * cell}px`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    map.resize(rec.layout, canvas.parentElement.clientWidth - 28);
 
+    const dpr = window.devicePixelRatio || 1;
     const sw = strip.parentElement.clientWidth;
     strip.width = sw * dpr;
     strip.height = 18 * dpr;
@@ -277,114 +253,17 @@
     sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  const cx = (c) => c * cell + cell / 2;   // centre x of a column
-  const cy = (r) => r * cell + cell / 2;   // centre y of a row
-
-  function drawStatic() {
-    const L = rec.layout;
-    ctx.fillStyle = "#f7f8fa";
-    ctx.fillRect(0, 0, L.width * cell, L.height * cell);
-
-    // grid lines
-    ctx.strokeStyle = "#eceef2";
-    ctx.lineWidth = 1;
-    for (let c = 0; c <= L.width; c++) { ctx.beginPath(); ctx.moveTo(c * cell + .5, 0); ctx.lineTo(c * cell + .5, L.height * cell); ctx.stroke(); }
-    for (let r = 0; r <= L.height; r++) { ctx.beginPath(); ctx.moveTo(0, r * cell + .5); ctx.lineTo(L.width * cell, r * cell + .5); ctx.stroke(); }
-
-    // walls
-    ctx.fillStyle = "#2b2f36";
-    for (const [r, c] of L.walls) ctx.fillRect(c * cell, r * cell, cell, cell);
-
-    // shelves: tint by row (A, B, ...), outline around each row, and on every
-    // shelf cell its id (A1) and its item
-    const groups = {};
-    L.shelves.forEach((s) => {
-      const g = s.id.replace(/\d+$/, "");
-      (groups[g] = groups[g] || { cells: [], name: s.name }).cells.push(...s.cells);
-    });
-    Object.keys(groups).sort().forEach((g, i) => {
-      const tint = SHELF_TINTS[i % SHELF_TINTS.length];
-      const cells = groups[g].cells;
-      ctx.fillStyle = tint;
-      for (const [r, c] of cells) ctx.fillRect(c * cell + 1, r * cell + 1, cell - 1, cell - 1);
-      const rows = cells.map((p) => p[0]), cols = cells.map((p) => p[1]);
-      const r0 = Math.min(...rows), r1 = Math.max(...rows), c0 = Math.min(...cols), c1 = Math.max(...cols);
-      ctx.strokeStyle = "#b9c3d3";
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(c0 * cell + 1, r0 * cell + 1, (c1 - c0 + 1) * cell - 2, (r1 - r0 + 1) * cell - 2);
-    });
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    for (const s of L.shelves) {
-      for (const [r, c] of s.cells) {
-        ctx.fillStyle = "#3b4252";
-        ctx.font = `700 ${Math.round(cell * 0.3)}px system-ui, sans-serif`;
-        ctx.fillText(s.id, cx(c), cy(r) - cell * 0.12);
-        const item = (s.items && s.items[0]) || "";
-        ctx.fillStyle = "#6b7280";
-        let size = Math.round(cell * 0.2);
-        ctx.font = `${size}px system-ui, sans-serif`;
-        while (size > 7 && ctx.measureText(item).width > cell - 4) {
-          size -= 1;
-          ctx.font = `${size}px system-ui, sans-serif`;
-        }
-        ctx.fillText(item, cx(c), cy(r) + cell * 0.2);
-      }
-    }
-
-    // stations
-    station(L.chargers, "#fff3cf", "#d99a00", "C");
-    station(L.packing, "#efe6fb", "#7b4fc9", "P");
-    station(L.docks, "#e7eaef", "#5b6475", "D");
-  }
-
-  function station(cells, fill, ink, letter) {
-    for (const [r, c] of cells) {
-      ctx.fillStyle = fill;
-      ctx.fillRect(c * cell + 1, r * cell + 1, cell - 1, cell - 1);
-      ctx.fillStyle = ink;
-      ctx.font = `700 ${Math.round(cell * 0.42)}px system-ui, sans-serif`;
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(letter, cx(c), cy(r));
-    }
-  }
-
-  function drawBlocked(frame) {
-    for (const [r, c] of frame.blocked) {
-      const x = c * cell, y = r * cell, p = cell * 0.22;
-      ctx.fillStyle = "rgba(214,69,69,.12)";
-      ctx.fillRect(x + 1, y + 1, cell - 1, cell - 1);
-      ctx.strokeStyle = "#d64545";
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(x + p, y + p); ctx.lineTo(x + cell - p, y + cell - p);
-      ctx.moveTo(x + cell - p, y + p); ctx.lineTo(x + p, y + cell - p);
-      ctx.stroke();
-    }
-  }
-
-  function robotColor(robot) {
-    if (robot.status === "error") return COLOR.error;
-    return COLOR[robot.task] || COLOR.idle;
-  }
-
   function drawTrails(tick) {
     if (!$("trails").checked) return;
     const from = Math.max(0, tick - 15);
     for (const robot of rec.frames[tick].robots) {
       if (selected && robot.id !== selected) continue;
-      ctx.strokeStyle = robotColor(robot);
-      ctx.globalAlpha = selected ? 0.55 : 0.25;
-      ctx.lineWidth = selected ? 4 : 3;
-      ctx.lineCap = "round"; ctx.lineJoin = "round";
-      ctx.beginPath();
+      const positions = [];
       for (let k = from; k <= tick; k++) {
         const r = rec.frames[k].robots.find((x) => x.id === robot.id);
-        if (!r) continue;
-        const [row, col] = r.pos;
-        if (k === from) ctx.moveTo(cx(col), cy(row)); else ctx.lineTo(cx(col), cy(row));
+        if (r) positions.push(r.pos);
       }
-      ctx.stroke();
-      ctx.globalAlpha = 1;
+      map.drawTrail(positions, robot, !!selected);
     }
   }
 
@@ -397,61 +276,10 @@
       // smooth movement between ticks
       const row = robot.pos[0] + (after.pos[0] - robot.pos[0]) * frac;
       const col = robot.pos[1] + (after.pos[1] - robot.pos[1]) * frac;
-      const x = cx(col), y = cy(row);
-      const color = robotColor(robot);
-      const radius = cell * 0.34;
-
-      // planned route (A*): a dashed line through every cell of robot.path
-      if ($("targets").checked && robot.target && (!selected || selected === robot.id)) {
-        ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.7;
-        ctx.lineWidth = 2;
-        ctx.lineCap = "round"; ctx.lineJoin = "round";
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        const route = robot.path && robot.path.length ? robot.path : [robot.target];
-        for (const [pr, pc] of route) ctx.lineTo(cx(pc), cy(pr));
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(robot.target[1] * cell + 4, robot.target[0] * cell + 4, cell - 8, cell - 8);
-        ctx.globalAlpha = 1;
-      }
-
-      // selection halo
-      if (robot.id === selected) {
-        ctx.fillStyle = "rgba(47,111,223,.15)";
-        ctx.beginPath(); ctx.arc(x, y, radius + 9, 0, Math.PI * 2); ctx.fill();
-      }
-
-      // battery ring
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#e3e6eb";
-      ctx.beginPath(); ctx.arc(x, y, radius + 3.5, 0, Math.PI * 2); ctx.stroke();
-      ctx.strokeStyle = robot.battery < 25 ? COLOR.error : "#5b6475";
-      ctx.beginPath();
-      ctx.arc(x, y, radius + 3.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * robot.battery / 100);
-      ctx.stroke();
-
-      // body
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
-
-      // carried item: small white square
-      if (robot.carrying) {
-        ctx.fillStyle = "#fff";
-        const s = radius * 0.5;
-        ctx.fillRect(x + radius * 0.25, y - radius * 0.95, s, s);
-        ctx.strokeStyle = color; ctx.lineWidth = 1.5;
-        ctx.strokeRect(x + radius * 0.25, y - radius * 0.95, s, s);
-      }
-
-      // id number
-      ctx.fillStyle = "#fff";
-      ctx.font = `700 ${Math.round(cell * 0.32)}px system-ui, sans-serif`;
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(robot.id.replace(/\D/g, ""), x, y + 1);
+      map.drawRobot(robot, row, col, {
+        showRoute: $("targets").checked && (!selected || selected === robot.id),
+        selected: robot.id === selected,
+      });
     }
   }
 
@@ -461,7 +289,7 @@
     sctx.clearRect(0, 0, w, h);
     sctx.fillStyle = "#f1f3f6";
     sctx.fillRect(0, 0, w, h);
-    const mark = { delivered: ["#1f9d55", 4, 14], breakdown: ["#d64545", 0, 18],
+    const mark = { delivered: ["#1f9d55", 4, 14], breakdown: ["#d64545", 0, 18], deadlock_resolved: ["#7b4fc9", 0, 18],
                    dropped_item: ["#e8833a", 0, 18], cell_blocked: ["#9aa1ad", 2, 16] };
     for (const [tick, , name] of rec.events) {
       const m = mark[name];
@@ -530,6 +358,8 @@
       orders_in_progress: "In progress", orders_failed: "Failed", avg_delivery_time: "Avg delivery (ticks)",
       on_time_rate: "On-time rate", breakdowns: "Breakdowns", dropped_items: "Dropped items",
       blocked_cells: "Blocked cells", stuck_steps: "Stuck steps",
+      collisions: "Collisions", deadlocks_resolved: "Deadlocks resolved", longest_wait: "Longest wait (ticks)",
+      battery_rescues: "Battery rescues",
     };
     $("final").innerHTML = Object.entries(labels).map(([key, label]) => {
       let v = k[key];
@@ -547,8 +377,8 @@
     const tick = Math.min(Math.floor(t), rec.ticks);
     const frac = playing && tick < rec.ticks ? t - tick : 0;
 
-    drawStatic();
-    drawBlocked(rec.frames[tick]);
+    map.drawStatic(rec.layout);
+    map.drawBlocked(rec.frames[tick].blocked);
     drawTrails(tick);
     drawRobots(tick, frac);
 
@@ -606,15 +436,7 @@
 
   // Click a robot on the map, or a row in the table, to follow it
   canvas.addEventListener("click", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const col = (e.clientX - rect.left) / cell - 0.5;
-    const row = (e.clientY - rect.top) / cell - 0.5;
-    const frame = rec.frames[Math.floor(t)];
-    let best = null, bestD = 0.6;
-    for (const r of frame.robots) {
-      const d = Math.hypot(r.pos[0] - row, r.pos[1] - col);
-      if (d < bestD) { best = r.id; bestD = d; }
-    }
+    const best = map.robotAt(e, rec.frames[Math.floor(t)].robots);
     selected = best === selected ? null : best;
     lastPanelTick = -1;
     update();

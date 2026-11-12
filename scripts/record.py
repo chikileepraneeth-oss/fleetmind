@@ -17,24 +17,30 @@ import json
 import os
 
 from scripts.classes import CHARGER, PACKING, DOCK
-from scripts.layout import load_layout
+from scripts.layout import load_layout, add_robots
 from scripts.scenarios import SCENARIOS
 from scripts.simulation import Simulation, SimConfig
 
 OUTPUT = os.path.join("viewer", "recordings.js")
 
 
-def record_scenario(key, layout_path):
-    """Run one scenario and return everything the viewer needs, as plain data."""
+def build_simulation(key, layout_path):
+    """
+    Build a fresh Simulation for one scenario: load the layout, apply the
+    scenario's robot count, start battery and config. Used by this recorder
+    and by the live server (web/), so both run a scenario exactly the same way.
+    """
     spec = SCENARIOS[key]
     warehouse = load_layout(layout_path)
 
-    # Optional: keep only the first N robots
+    # Optional: keep only the first N robots, or add robots up to N
     keep = spec.get("robots")
-    if keep is not None:
+    if keep is not None and keep < len(warehouse.robots):
         for robot_id in sorted(warehouse.robots)[keep:]:
             robot = warehouse.robots.pop(robot_id)
             del warehouse.occupied[robot.position]
+    elif keep is not None:
+        add_robots(warehouse, keep)
 
     # Optional: change the starting battery
     if "start_battery" in spec:
@@ -42,7 +48,14 @@ def record_scenario(key, layout_path):
             robot.battery = spec["start_battery"]
 
     config = SimConfig(**spec["config"])
-    sim = Simulation(warehouse, seed=spec["seed"], config=config)
+    return Simulation(warehouse, seed=spec["seed"], config=config)
+
+
+def record_scenario(key, layout_path):
+    """Run one scenario and return everything the viewer needs, as plain data."""
+    spec = SCENARIOS[key]
+    sim = build_simulation(key, layout_path)
+    warehouse = sim.warehouse
 
     frames = [snapshot(sim)]                  # tick 0: the starting state
     for _ in range(spec["ticks"]):

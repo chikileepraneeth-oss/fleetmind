@@ -1,9 +1,9 @@
 """
-Simple robot movement for week 3: the "greedy step".
+Simple robot movement: the "greedy step".
 
 Each tick, the robot tries to move one cell closer to its target.
 It does NOT plan a route, so it can get stuck behind shelves or other
-robots. That is expected: in week 4, A* path planning replaces this,
+robots. That is expected: A* path planning (below) replaces this,
 and we can measure how much better it is.
 """
 
@@ -61,7 +61,7 @@ def nearest(position, cells):
 
 
 # ---------------------------------------------------------------------------
-# A* path planning (week 4)
+# A* path planning
 # ---------------------------------------------------------------------------
 #
 # A* finds the SHORTEST route from start to goal on the grid, going around
@@ -73,7 +73,9 @@ def nearest(position, cells):
 
 import heapq
 
-from scripts.classes import DIRECTIONS, DRIVABLE
+from scripts.classes import DIRECTIONS, DRIVABLE, CHARGER, PACKING, DOCK
+
+STATIONS = {CHARGER, PACKING, DOCK}
 
 
 def astar(warehouse, start, goal, avoid=None):
@@ -93,7 +95,8 @@ def astar(warehouse, start, goal, avoid=None):
         return (warehouse.is_inside(cell)
                 and warehouse.cell_type(cell) in DRIVABLE
                 and cell not in warehouse.blocked
-                and cell not in avoid)
+                and cell not in avoid
+                and (cell == goal or not is_station(warehouse, cell)))
 
     if not passable(goal):
         return None
@@ -139,3 +142,50 @@ def direction_to(position, next_cell):
         if delta == step:
             return name
     return None
+
+
+# ---------------------------------------------------------------------------
+# Distance table
+# ---------------------------------------------------------------------------
+
+from collections import deque
+
+
+def distance_table(warehouse):
+    """
+    The true walking distance between every pair of drivable cells, going
+    around walls and shelves (but ignoring robots and blocked cells).
+
+    dist[a][b] = number of steps from a to b.
+
+    It is computed once at the start with a breadth-first search (BFS) from
+    every cell. After that, "how far is it?" is an instant lookup - much
+    faster than running A* every time the fleet manager compares robots.
+    """
+    cells = [(r, c) for r in range(warehouse.height) for c in range(warehouse.width)
+             if warehouse.cell_type((r, c)) in DRIVABLE]
+    table = {}
+    for start in cells:
+        dist = {start: 0}
+        queue = deque([start])
+        while queue:
+            cell = queue.popleft()
+            if cell != start and is_station(warehouse, cell):
+                continue                         # you can arrive at a station, but not drive through it
+            for d_row, d_col in DIRECTIONS.values():
+                nxt = (cell[0] + d_row, cell[1] + d_col)
+                if nxt not in dist and warehouse.is_inside(nxt) \
+                        and warehouse.cell_type(nxt) in DRIVABLE:
+                    dist[nxt] = dist[cell] + 1
+                    queue.append(nxt)
+        table[start] = dist
+    return table
+
+
+def is_station(warehouse, cell):
+    """
+    Chargers, packing stations and docks are places robots STOP at.
+    Robots never drive through them on the way somewhere else, so they don't
+    block a robot that actually needs the station.
+    """
+    return warehouse.cell_type(cell) in STATIONS

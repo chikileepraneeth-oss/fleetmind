@@ -1,7 +1,7 @@
 """
-Tests for week 3: order generator, movement, and the running simulation.
+Tests for the order generator, movement, and the running simulation.
 
-The most important one is the week 3 checkpoint:
+The most important one is the checkpoint:
 the same seed must always give exactly the same run.
 """
 
@@ -27,7 +27,7 @@ def run_sim(seed, ticks=500, config=None):
 
 
 # ---------------------------------------------------------------------------
-# Week 3 checkpoint: repeatable runs
+# Checkpoint: repeatable runs
 # ---------------------------------------------------------------------------
 
 def test_same_seed_gives_identical_500_tick_runs():
@@ -102,7 +102,7 @@ def test_robots_go_to_charge_in_a_long_run():
     sim = run_sim(seed=42, ticks=2000)
     event_names = [e[2] for e in sim.events]
     assert "going_to_charge" in event_names
-    assert "charged" in event_names
+    assert "charged" in event_names or "left_charger_early" in event_names
 
 
 def test_delivery_times_are_positive():
@@ -139,7 +139,8 @@ def test_no_events_means_no_breakdowns_drops_or_blocks():
 
 
 def test_first_free_robot_takes_oldest_order():
-    calm = SimConfig(order_rate=0, breakdown_chance=0, drop_chance=0, block_chance=0)
+    calm = SimConfig(order_rate=0, breakdown_chance=0, drop_chance=0, block_chance=0,
+                     assignment="first_free")
     wh = load_layout(MAIN_LAYOUT)
     sim = Simulation(wh, seed=1, config=calm)
     first = sim.generator.create(tick=0)
