@@ -269,7 +269,7 @@
   // Talking to the server
   // ------------------------------------------------------------------
   function connect() {
-    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
     ws.onopen = () => setConn("live", "live");
     ws.onclose = () => {
       setConn("off", "disconnected – retrying…");
