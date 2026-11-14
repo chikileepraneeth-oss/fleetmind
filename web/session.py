@@ -22,11 +22,19 @@ Messages (all are dicts with a "type" field):
         {"type": "start"} {"type": "pause"} {"type": "step"} {"type": "reset"}
         {"type": "speed", "value": 10}
         {"type": "scenario", "key": "rush_hour"}
+
+Over MQTT (LiveSession(broker=...)): the session does not step the simulation
+itself. A FleetLink (scripts/fleet_link.py) does: it sends VDA 5050 orders to
+the robots and reads their states back. Robots that stop answering are "lost".
 """
+
+import random
 
 from scripts.demand import clock, OPEN_HOUR, CLOSE_HOUR
 from scripts.record import build_simulation, layout_data, snapshot
 from scripts.scenarios import SCENARIOS
+from scripts.simulation import LATEST_END_TICK
+from scripts.fleet_link import FleetLink, start_robots
 
 DEFAULT_LAYOUT = "layouts/main_warehouse.json"
 MIN_SPEED, MAX_SPEED = 1, 60      # ticks per second
@@ -36,41 +44,93 @@ RECENT_EVENTS = 50                # how many past events a newly opened tab gets
 # Everything else (no task, going home) counts as idle.
 BUSY_TASKS = {"to_pickup", "to_dropoff"}
 CHARGING_TASKS = {"to_charger", "charging", "wait_charger"}
+INIT_WAIT = 2.0                   # seconds to wait for robots to answer initPosition (MQTT)
+LOST_RESCUE_TICKS = 25            # a technician walks to a lost robot and restarts it (minutes)
 
 
 class LiveSession:
 
-    def __init__(self, layout_path=DEFAULT_LAYOUT, scenario="normal", speed=6):
+    def __init__(self, layout_path=DEFAULT_LAYOUT, scenario="normal", speed=6,
+                 broker=None, robots="inproc", broker_name="", link_options=None):
+        """
+        broker=None: the simulation runs here, as before.
+        broker=InMemoryBroker() or MqttBroker(...): the fleet runs over MQTT.
+            robots="inproc"   the session starts a simulated robot for every robot of the scenario
+            robots="external" the robots run somewhere else (python -m scripts.robot_agent)
+        """
         self.layout_path = layout_path
         self.speed = speed
         self.running = False
+        self.broker = broker
+        self.robots_mode = robots
+        self.broker_name = broker_name
+        self.link_options = link_options or {}
+        self.agents = {}               # robot id -> RobotAgent (only robots="inproc")
+        self.link = None
+        self.public = False            # the public demo (set by web/server.py): the page shows a banner
         self.load_scenario(scenario)
 
     # ------------------------------------------------------------------
     # Controls
     # ------------------------------------------------------------------
 
-    def load_scenario(self, key):
-        """Build a fresh simulation for this scenario, at tick 0, paused."""
+    def load_scenario(self, key, seed=None):
+        """
+        Build a fresh simulation for this scenario, at tick 0, paused.
+        seed=None: the scenario's own seed (the same day every time, to compare versions).
+        """
         if key not in SCENARIOS:
             raise ValueError(f"unknown scenario '{key}'")
         self.scenario = key
-        self.sim = build_simulation(key, self.layout_path)
+        self.seed = SCENARIOS[key]["seed"] if seed is None else seed
+        self.sim = build_simulation(key, self.layout_path, seed=self.seed)
+        # robots that lose their connection now and then (only with MQTT: there "lost" exists)
+        self.lost_chance = SCENARIOS[key].get("lost_chance", 0.0)
+        self.fault_rng = random.Random(self.seed * 17 + 3)
+        self.rescue = {}                   # lost robot id -> tick when the technician has restarted it
         self.running = False
+        if self.broker is not None:
+            self._connect_fleet()
         self._events_sent = 0     # how many of sim.events the browsers have already received
-        # A realistic day (1 tick = 1 minute from 06:00) has an end: the scenario's last tick
-        # (orders stop at 22:00, the robots finish until then). Other scenarios run forever.
-        spec = SCENARIOS[key]
-        self.day_end = spec["ticks"] if spec["config"].get("demand") == "realistic" else None
+        # A realistic day (1 tick = 1 minute from 06:00) has an end: orders stop at 22:00,
+        # and the day closes when the last order is delivered (Simulation.day_over).
+        # Other scenarios run forever.
+        self.realistic = self.sim.config.demand == "realistic"
+
+    def _connect_fleet(self):
+        """Make sure every robot of this scenario has a running robot (inproc), then take control."""
+        if self.robots_mode == "inproc":
+            missing = [rid for rid in sorted(self.sim.warehouse.robots) if rid not in self.agents]
+            heartbeat = type(self.broker).__name__ != "InMemoryBroker"
+            for agent in start_robots(self.broker, missing, self.layout_path, heartbeat=heartbeat):
+                self.agents[agent.serial] = agent
+        if self.link is None:
+            self.link = FleetLink(self.sim, self.broker, wait=INIT_WAIT, **self.link_options)
+        else:
+            self.link.attach(self.sim, wait=INIT_WAIT)
+
+    def check_link(self):
+        """While paused: notice robots that went silent or came back. True if anything changed."""
+        return self.link.check_heartbeats() if self.link else False
+
+    def close(self):
+        for agent in self.agents.values():
+            agent.stop()
+        if self.link:
+            self.link.close()
 
     @property
     def finished(self):
-        """True when a realistic day is over (the warehouse is closed)."""
-        return self.day_end is not None and self.sim.tick >= self.day_end
+        """True when a realistic day is over: after 22:00 and every order delivered."""
+        return self.sim.day_over()
 
     def reset(self):
-        """Back to tick 0 of the same scenario. Same seed, so the same run again."""
-        self.load_scenario(self.scenario)
+        """Back to tick 0 of the same day. Same seed, so the same run again."""
+        self.load_scenario(self.scenario, self.seed)
+
+    def new_day(self):
+        """The same scenario with a new random seed: other breakdowns, blocked cells, items and routes."""
+        self.load_scenario(self.scenario, random.randrange(1, 1_000_000))
 
     def start(self):
         if self.finished:
@@ -85,9 +145,51 @@ class LiveSession:
         if self.finished:
             self.running = False
             return
-        self.sim.step()
+        if self.link:
+            self._connection_faults()
+            self.link.step()
+            self._rescue_lost_robots()
+        else:
+            self.sim.step()
         if self.finished:
             self.running = False                  # closing time: stop by itself
+
+    def _connection_faults(self):
+        """Scenario "Connection trouble": now and then a robot's connection drops (it crashes)."""
+        if not self.lost_chance or self.robots_mode != "inproc":
+            return
+        for rid in sorted(self.agents):
+            agent = self.agents[rid]
+            if rid in self.sim.warehouse.robots and rid not in self.sim.lost and agent.conn and agent.conn.open \
+                    and self.fault_rng.random() < self.lost_chance:
+                agent.crash()                          # the broker sends its last will: CONNECTIONBROKEN
+
+    def _rescue_lost_robots(self):
+        """
+        A lost robot is not given up: a technician walks to where it was last seen and restarts it.
+        Robots this website runs itself come back; a robot program in someone's terminal must be
+        restarted by hand (the technician can only report it).
+        """
+        sim = self.sim
+        for rid in list(self.rescue):
+            if rid not in sim.lost:                    # it came back by itself
+                del self.rescue[rid]
+        for rid in sorted(sim.lost):
+            if rid not in self.rescue:
+                self.rescue[rid] = sim.tick + LOST_RESCUE_TICKS
+                sim.log("technician_sent", rid, f"to {sim.warehouse.robots[rid].position} to restart it")
+            elif sim.tick >= self.rescue[rid]:
+                if self.robots_mode == "inproc":
+                    old = self.agents.get(rid)
+                    if old and old.conn and old.conn.open:
+                        old.crash()
+                    self.agents[rid] = start_robots(self.broker, [rid], self.layout_path,
+                                                    heartbeat=type(self.broker).__name__ != "InMemoryBroker")[0]
+                    sim.log("technician_restarted", rid, "the robot is switched on again")
+                    del self.rescue[rid]
+                else:
+                    sim.log("technician_report", rid, "can't restart it here: restart its robot program by hand")
+                    self.rescue[rid] = sim.tick + 10 ** 9
 
     def set_speed(self, value):
         """Ticks per second. Kept between MIN_SPEED and MAX_SPEED."""
@@ -125,6 +227,9 @@ class LiveSession:
         if kind == "reset":
             self.reset()
             return [self.hello_message(), self.state_message()]
+        if kind == "new_day":
+            self.new_day()
+            return [self.hello_message(), self.state_message()]
         if kind == "scenario":
             self.load_scenario(command.get("key"))
             return [self.hello_message(), self.state_message()]
@@ -142,24 +247,32 @@ class LiveSession:
             "scenarios": [{"key": k, "title": s["title"], "description": s["description"]}
                           for k, s in SCENARIOS.items()],
             "scenario": self.scenario,
-            "seed": spec["seed"],
+            "seed": self.seed,
+            "random_day": self.seed != spec["seed"],
             "layout": layout_data(self.sim.warehouse),
             # the latest events, so a tab opened in the middle of a run isn't empty
             "events": [list(e) for e in self.sim.events[-RECENT_EVENTS:]],
             "day": self.day_info(),
+            "transport": self.transport_info(),
+            "public": self.public,
         }
+
+    def transport_info(self):
+        """How the manager talks to the robots: directly ("local") or over MQTT."""
+        if self.link is None:
+            return {"mode": "local"}
+        return {"mode": "mqtt", "broker": self.broker_name or "in-memory", "robots": self.robots_mode}
 
     def day_info(self):
         """For a realistic day: the date and opening hours (None for scenarios that run forever)."""
-        if self.day_end is None:
+        if not self.realistic:
             return None
         demand, cfg = self.sim.demand, self.sim.config
         return {
             "date": demand.date(cfg.demand_day).strftime("%A %d %B %Y"),   # e.g. Friday 02 October 2026
             "open": f"{OPEN_HOUR:02d}:00",
             "close": f"{CLOSE_HOUR:02d}:00",                                 # no new orders after this
-            "end": clock(self.day_end),                                      # the robots finish until this
-            "end_tick": self.day_end,
+            "latest_end": clock(LATEST_END_TICK),                            # stop anyway (work left over)
         }
 
     def state_message(self, new_events=True):
@@ -177,6 +290,12 @@ class LiveSession:
             events = []
 
         frame = snapshot(self.sim)            # robots, blocked cells, queue: same format as the replay viewer
+        if self.link:
+            links = self.link.link_status()
+            for robot in frame["robots"]:
+                robot.update(links.get(robot["id"], {}))
+                if robot["id"] in self.rescue and self.rescue[robot["id"]] - self.sim.tick < 10 ** 6:
+                    robot["rescue_in"] = max(0, self.rescue[robot["id"]] - self.sim.tick)
         return {
             "type": "state",
             "tick": frame["tick"],
@@ -184,9 +303,12 @@ class LiveSession:
             "speed": self.speed,
             "robots": frame["robots"],
             "blocked": frame["blocked"],
+            "blocked_info": self.sim.blocked_info(),        # WHY each cell is blocked (the 3D view shows it)
             "queue": frame["queue"],
+            "people": frame.get("people", []),             # restocking people / robots (where they REALLY are)
+            "known_people": frame.get("known_people", []), # where the robots BELIEVE the people are
             "events": [list(e) for e in events],
-            "clock": clock(frame["tick"]) if self.day_end is not None else None,   # 1 tick = 1 minute from 06:00
+            "clock": clock(frame["tick"]) if self.realistic else None,   # 1 tick = 1 minute from 06:00
             "finished": self.finished,
             "kpis": self.kpis(frame["robots"]),
         }
@@ -196,11 +318,13 @@ class LiveSession:
         k = self.sim.kpis()
         tick = self.sim.tick
         k["throughput"] = round(k["orders_delivered"] / tick * 100, 1) if tick else 0.0
-        broken = sum(1 for r in robots if r["status"] == "error")
+        lost = sum(1 for r in robots if r["task"] == "lost")
+        broken = sum(1 for r in robots if r["status"] == "error") - lost
         busy = sum(1 for r in robots if r["status"] != "error" and r["task"] in BUSY_TASKS)
         charging = sum(1 for r in robots if r["status"] != "error" and r["task"] in CHARGING_TASKS)
         k["robots_busy"] = busy
         k["robots_charging"] = charging
         k["robots_broken"] = broken
-        k["robots_idle"] = len(robots) - busy - charging - broken
+        k["robots_lost"] = lost
+        k["robots_idle"] = len(robots) - busy - charging - broken - lost
         return k

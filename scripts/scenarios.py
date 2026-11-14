@@ -95,6 +95,41 @@ SCENARIOS = {
         "ticks": 1020,
         "config": {"demand": "realistic", "demand_seed": 7, "demand_day": 123},
     },
+    "restock_people": {
+        "title": "Restocking by people",
+        "description": "2 people carry goods from the docks to the shelves. The robots don't know where they are: "
+                       "a robot that sees a person tells every robot, and routes through that spot are planned again.",
+        "seed": 42,
+        "ticks": 500,
+        "config": {"restock": "people"},
+    },
+    "restock_robots": {
+        "title": "Restocking by robots",
+        "description": "The same restock jobs, done by 2 restocking robots. They book their route like every robot, "
+                       "so nobody has to find them. Compare with Restocking by people.",
+        "seed": 42,
+        "ticks": 500,
+        "config": {"restock": "robots"},
+    },
+    "connection_trouble": {
+        "title": "Connection trouble",
+        "description": "Now and then a robot loses its connection and is lost. A technician walks over and "
+                       "restarts it; then it rejoins the fleet. (Needs MQTT, like the public demo.)",
+        "seed": 42,
+        "ticks": 500,
+        "config": {},
+        "lost_chance": 0.003,
+    },
+    "talking_robots": {
+        "title": "Talking robots (MQTT story)",
+        "description": "2 robots, low batteries and breakdowns, so every kind of message happens early. "
+                       "Run python -m scripts.talk to read what they say to each other, and why.",
+        "seed": 42,
+        "ticks": 300,
+        "config": {"order_rate": 0.08, "breakdown_chance": 0.01, "drop_chance": 0, "block_chance": 0},
+        "robots": 2,
+        "start_battery": 30.0,
+    },
     "stress_20": {
         "title": "Stress test - 20 robots",
         "description": "20 robots and an order every 2 ticks. Watch the waiting zones, bookings and deadlock handling.",

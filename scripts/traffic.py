@@ -100,7 +100,7 @@ class ReservationTable:
 
 
 def cooperative_astar(warehouse, start, goal, start_tick, table, robot_id, dist,
-                      window=16, max_expansions=4000):
+                      window=16, max_expansions=4000, through_stations=False):
     """
     Space-time A*: plan from `start` (where the robot is at start_tick) towards
     `goal`, respecting other robots' bookings. Waiting in place is allowed.
@@ -120,7 +120,7 @@ def cooperative_astar(warehouse, start, goal, start_tick, table, robot_id, dist,
         return (warehouse.is_inside(cell)
                 and warehouse.cell_type(cell) in DRIVABLE
                 and cell not in warehouse.blocked
-                and (cell == goal or not is_station(warehouse, cell)))
+                and (cell == goal or through_stations or not is_station(warehouse, cell)))
 
     moves = list(DIRECTIONS.values()) + [(0, 0)]            # 4 moves + wait
     counter = 0

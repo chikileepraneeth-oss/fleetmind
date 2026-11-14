@@ -24,7 +24,7 @@ from scripts.simulation import Simulation, SimConfig
 OUTPUT = os.path.join("viewer", "recordings.js")
 
 
-def build_simulation(key, layout_path):
+def build_simulation(key, layout_path, seed=None):
     """
     Build a fresh Simulation for one scenario: load the layout, apply the
     scenario's robot count, start battery and config. Used by this recorder
@@ -48,7 +48,7 @@ def build_simulation(key, layout_path):
             robot.battery = spec["start_battery"]
 
     config = SimConfig(**spec["config"])
-    return Simulation(warehouse, seed=spec["seed"], config=config)
+    return Simulation(warehouse, seed=spec["seed"] if seed is None else seed, config=config)
 
 
 def record_scenario(key, layout_path):
@@ -58,7 +58,9 @@ def record_scenario(key, layout_path):
     warehouse = sim.warehouse
 
     frames = [snapshot(sim)]                  # tick 0: the starting state
-    for _ in range(spec["ticks"]):
+    realistic = sim.config.demand == "realistic"
+    # a realistic day runs until its last order is delivered; other scenarios for spec["ticks"]
+    while (not sim.day_over()) if realistic else sim.tick < spec["ticks"]:
         sim.step()
         frames.append(snapshot(sim))
 
@@ -67,7 +69,7 @@ def record_scenario(key, layout_path):
         "title": spec["title"],
         "description": spec["description"],
         "seed": spec["seed"],
-        "ticks": spec["ticks"],
+        "ticks": sim.tick,
         "config": {**SimConfig().__dict__, **spec["config"]},
         "layout": layout_data(warehouse),
         "frames": frames,
@@ -115,8 +117,11 @@ def snapshot(sim):
     return {
         "tick": sim.tick,
         "robots": robots,
-        "blocked": [list(c) for c in sorted(sim.warehouse.blocked)],
+        # cells blocked by a lost robot are shown as the robot, not as a blocked cell
+        "blocked": [list(c) for c in sorted(sim.warehouse.blocked)
+                    if c not in getattr(sim, "lost_cells", {}).values()],
         "queue": len(sim.queue),
+        **(sim.crew.snapshot() if getattr(sim, "crew", None) else {}),   # restocking people / robots
     }
 
 

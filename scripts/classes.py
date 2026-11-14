@@ -293,6 +293,7 @@ class Warehouse:
         self.robots = {}             # robot_id -> Robot
         self.occupied = {}           # (row, col) -> robot_id, for fast "is this cell taken?"
         self.blocked = set()         # floor cells temporarily blocked (e.g. a fallen box)
+        self.people = {}             # (row, col) -> id of a person or restocking robot standing there
 
         # Surround the warehouse with walls
         for row in range(height):
@@ -364,6 +365,8 @@ class Warehouse:
             return False, "blocked"
         if position in self.occupied:
             return False, f"occupied by {self.occupied[position]}"
+        if position in self.people:
+            return False, f"person: {self.people[position]} is standing there"
         return True, "free"
 
     def is_adjacent(self, pos_a, pos_b):

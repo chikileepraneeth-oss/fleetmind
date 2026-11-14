@@ -132,27 +132,52 @@ def test_realistic_day_has_a_clock_and_a_date():
     s = LiveSession(LAYOUT, scenario="realistic_friday")
     hello = s.hello_message()
     assert hello["day"]["date"] == "Friday 02 October 2026"
-    assert hello["day"]["open"] == "06:00" and hello["day"]["end"] == "23:00"
+    assert hello["day"]["open"] == "06:00" and hello["day"]["close"] == "22:00"
     assert s.state_message()["clock"] == "06:00"
     for _ in range(90):
         s.step()
     assert s.state_message()["clock"] == "07:30"
 
 
-def test_realistic_day_stops_by_itself_at_closing_time():
+def test_realistic_day_closes_when_the_last_order_is_delivered():
+    """No new orders after 22:00, but every order of the day is still delivered before closing."""
     s = LiveSession(LAYOUT, scenario="realistic_friday")
     s.start()
-    for _ in range(s.day_end + 50):              # try to run past the end
+    while s.running:
         s.step()
     msg = s.state_message()
-    assert s.sim.tick == 1020 and msg["clock"] == "23:00"
     assert msg["finished"] is True and msg["running"] is False
+    assert s.sim.tick >= 960                                 # never before 22:00
+    assert s.sim.open_orders() == 0                          # every order of the day is done
+    assert max(o.created_at for o in s.sim.orders) < 960   # no orders after 22:00
+    assert msg["clock"] == "22:24"                           # this Friday: the last delivery
     with pytest.raises(ValueError, match="Reset"):
         s.handle({"type": "start"})
     with pytest.raises(ValueError, match="Reset"):
         s.handle({"type": "step"})
     s.handle({"type": "reset"})                  # reset opens the day again
     assert s.sim.tick == 0 and s.state_message()["finished"] is False
+
+
+def test_a_busy_day_stays_open_until_the_work_is_done():
+    """With 4 robots instead of 5, the last order is delivered at 00:49: the day stays open until then."""
+    sim = build_simulation("realistic_friday", LAYOUT)
+    for robot_id in sorted(sim.warehouse.robots)[4:]:
+        robot = sim.warehouse.robots.pop(robot_id)
+        del sim.warehouse.occupied[robot.position]
+    while not sim.day_over():
+        sim.step()
+    assert sim.tick == 1129 and sim.open_orders() == 0          # 00:49
+
+
+def test_a_day_that_cannot_finish_stops_the_next_morning():
+    from scripts.simulation import LATEST_END_TICK
+    sim = build_simulation("realistic_friday", LAYOUT)
+    for robot_id in sorted(sim.warehouse.robots):
+        sim.mark_lost(robot_id)                  # nobody can work
+    while not sim.day_over():
+        sim.step()
+    assert sim.tick == LATEST_END_TICK and sim.open_orders() > 0
 
 
 def test_other_scenarios_run_forever_without_a_clock():
@@ -162,3 +187,45 @@ def test_other_scenarios_run_forever_without_a_clock():
         s.step()
     msg = s.state_message()
     assert msg["clock"] is None and msg["finished"] is False and s.sim.tick == 600
+
+
+# ---------------------------------------------------------------------------
+# A new random day, and WHY a cell is blocked
+# ---------------------------------------------------------------------------
+
+def test_a_new_random_day_differs_and_reset_repeats_it():
+    s = LiveSession(LAYOUT, scenario="normal")
+    first_seed = s.seed
+    s.handle({"type": "new_day"})
+    assert s.seed != first_seed and s.hello_message()["random_day"] is True
+    for _ in range(150):
+        s.step()
+    events = list(s.sim.events)
+    s.handle({"type": "reset"})                       # reset = the SAME random day again
+    for _ in range(150):
+        s.step()
+    assert s.sim.events == events
+    normal = build_simulation("normal", LAYOUT)
+    normal.run(150)
+    assert normal.events != events                     # and it really is another day
+
+
+def test_every_blocked_cell_says_why():
+    s = LiveSession(LAYOUT, scenario="blocked_aisles")
+    for _ in range(40):
+        s.step()
+    info = s.state_message()["blocked_info"]
+    assert info and len(info) == len(s.sim.warehouse.blocked)
+    assert {b["kind"] for b in info} <= {"box", "spill", "pallet", "person", "closed", "lost_robot"}
+    assert all(b["why"] and b["until"] > s.sim.tick for b in info)
+
+
+def test_block_reasons_do_not_change_the_run():
+    """The reasons come from their own random generator: the same seed still gives the same run."""
+    a = build_simulation("blocked_aisles", LAYOUT)
+    a.run(200)
+    assert a.kpis()["blocked_cells"] > 0
+    b = build_simulation("blocked_aisles", LAYOUT)
+    b.story_rng.random()                               # even if the story generator is used differently
+    b.run(200)
+    assert [e[:3] for e in a.events] == [e[:3] for e in b.events]

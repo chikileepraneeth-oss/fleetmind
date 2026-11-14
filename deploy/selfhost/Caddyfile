@@ -1,0 +1,12 @@
+# HTTPS for the demo's domain (Caddy gets and renews the certificate itself).
+{$DEMO_DOMAIN} {
+	encode gzip
+	# everything, including the live WebSocket at /ws, goes to the demo
+	reverse_proxy demo:8000
+	header {
+		# allow your own website to show the demo inside a page (iframe); nobody else
+		Content-Security-Policy "frame-ancestors 'self' {$EMBED_FROM:https://*}"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Content-Type-Options "nosniff"
+	}
+}

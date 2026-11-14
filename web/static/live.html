@@ -20,6 +20,7 @@
     --to-dropoff: #1f9d55;
     --charge: #d99a00;
     --error: #d64545;
+    --lost: #3b4252;
   }
   * { box-sizing: border-box; }
   body {
@@ -73,6 +74,7 @@
   }
   .shutter.up { transform: translateY(-101%); }
   .shutter[hidden] { display: none; }
+  .kpi.robots i[hidden], .conn[hidden], .legend span[hidden] { display: none; }
   .sign {
     background: var(--panel); border-radius: 12px; padding: 18px 26px; text-align: center;
     box-shadow: 0 6px 24px rgba(0,0,0,.25); min-width: 260px;
@@ -128,15 +130,32 @@
     opacity: 0; transition: opacity .2s; pointer-events: none;
   }
   #toast.show { opacity: 1; }
+  .agent-log { max-height: 300px; overflow-y: auto; font-size: 13px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .agent-log .m { padding: 6px 8px; border-radius: 8px; background: #f4f6f9; }
+  .agent-log .m b { font-weight: 600; }
+  .agent-log .m.tool { background: #eef3fc; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .agent-log .m.approval { background: #fff4d6; } .agent-log .m.rejected { background: #fde8e8; }
+  .agent-log .m.finished { background: #e6f4ec; }
+  #agent-approval .ask { border: 2px solid #d99a00; border-radius: 10px; padding: 10px; margin-bottom: 8px; background: #fffaf0; }
+  #agent-approval .ask code { display: block; margin: 6px 0; white-space: pre-wrap; font-size: 12px; }
+  #agent-approval input, #agent-form input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+  #agent-form { display: flex; gap: 6px; } #agent-form input { flex: 1; }
+  #public-banner { display: none; background: #1d2330; color: #fff; font-size: 13px; padding: 7px 16px; text-align: center; }
+  #public-banner a { color: #9cc0ff; }
 </style>
 </head>
 <body>
+<div id="public-banner">Public demo of <b>FleetMind</b>, a warehouse robot fleet with a central brain.
+  You share this warehouse with everyone watching: press Start, pick a scenario or a random day.
+  <a href="https://github.com/chikileepraneeth-oss/fleetmind" target="_blank" rel="noopener">Code and results on GitHub</a></div>
 
 <header>
   <h1>FleetMind <span>live</span></h1>
   <select id="scenario" aria-label="Scenario"></select>
   <div id="description"></div>
   <span class="conn" id="conn">connecting…</span>
+  <span class="conn" id="transport" hidden></span>
+  <a href="/3d" style="color:var(--accent);text-decoration:none;white-space:nowrap;font-weight:600">3D view →</a>
   <a href="/viewer/index.html" style="color:var(--accent);text-decoration:none;white-space:nowrap">Replay viewer →</a>
 </header>
 
@@ -153,6 +172,7 @@
       <i style="--c:var(--idle)" id="k-idle">0 idle</i>
       <i style="--c:var(--charge)" id="k-charging">0 charging</i>
       <i style="--c:var(--error)" id="k-broken">0 broken</i>
+      <i style="--c:var(--lost)" id="k-lost" hidden>0 lost</i>
     </b>
     <span>robots</span>
   </div>
@@ -175,7 +195,8 @@
       <div class="controls">
         <button id="play" class="primary" title="Start / pause (space)">▶ Start</button>
         <button id="step" title="One tick (→)">Step ▸</button>
-        <button id="reset" title="Back to tick 0 (same seed)">⟲ Reset</button>
+        <button id="reset" title="Back to tick 0 (same seed): the same day again">⟲ Reset</button>
+        <button id="newday" title="The same scenario with a new random seed: other breakdowns, boxes, orders">🎲 New random day</button>
         <span class="tick-label" id="tick-label">Tick 0</span>
         <label class="toggle"><input type="checkbox" id="trails" checked> Trails</label>
         <label class="toggle"><input type="checkbox" id="routes" checked> Routes</label>
@@ -191,12 +212,22 @@
         <span><i style="background:var(--to-dropoff)"></i>Carrying to packing</span>
         <span><i style="background:var(--charge)"></i>Charging</span>
         <span><i style="background:var(--error)"></i>Broken</span>
+        <span id="legend-lost" hidden><i style="background:var(--lost)"></i>Lost (no heartbeat)</span>
         <span>Dashed line = planned route · Ring = battery · X = blocked cell</span>
       </div>
     </div>
   </section>
 
   <aside class="side">
+    <div class="card" id="agent-card" hidden>
+      <h2>AI supervisor <span class="small" id="agent-busy"></span></h2>
+      <div id="agent-approval"></div>
+      <div id="agent-log" class="agent-log"></div>
+      <form id="agent-form" autocomplete="off">
+        <input id="agent-input" maxlength="500" placeholder="e.g. Prepare for a big delivery at 2 pm">
+        <button type="submit">Send</button>
+      </form>
+    </div>
     <div class="card" id="follow-card" hidden>
       <h2>Following <span id="follow-id"></span> <span class="small">(click it again to stop)</span></h2>
       <div id="follow"></div>
@@ -247,6 +278,7 @@
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === "hello") onHello(msg);
+      else if (msg.type === "agent") onAgent(msg);
       else if (msg.type === "state") onState(msg);
       else if (msg.type === "error") toast(msg.message);
     };
@@ -257,9 +289,74 @@
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(command));
   }
 
-  let day = null;             // realistic day: {date, open, close, end, end_tick}, else null
+  let day = null;             // realistic day: {date, open, close, latest_end}, else null
+
+  // ------------------------------------------------------------------
+  // The AI supervisor: its log, requests, and Approve / Reject
+  // ------------------------------------------------------------------
+  const AGENT_ICON = { queued: "🕓", task: "📋", plan: "🗺️", thinking: "💭", tool: "🔧", approval: "✋",
+    approval_closed: "", rejected: "⛔", check: "🔎", finished: "🏁" };
+  const openApprovals = {};
+
+  function onAgent(msg) {
+    const d = msg.data || {};
+    if (msg.event === "approval") { openApprovals[d.id] = msg; renderApprovals(); }
+    if (msg.event === "approval_closed") { delete openApprovals[d.id]; renderApprovals(); }
+    if (msg.event === "task") $("agent-busy").textContent = "· working";
+    if (msg.event === "finished") $("agent-busy").textContent = "";
+    if (msg.event === "approval_closed" || msg.event === "approval") {
+      if (msg.event === "approval_closed") addAgentLine(msg.tick, "approval", `${d.approved ? "✅ Approved" : "⛔ Rejected"}${d.note ? ": " + d.note : ""}`);
+      return;
+    }
+    let text = msg.text;
+    if (msg.event === "finished") text += `  (${d.tool_calls} tool calls, $${(d.cost_usd || 0).toFixed(3)})`;
+    addAgentLine(msg.tick, msg.event, text);
+  }
+
+  function addAgentLine(tick, event, text) {
+    const log = $("agent-log");
+    const div = document.createElement("div");
+    div.className = `m ${event}`;
+    div.innerHTML = `<span class="small">${tick}</span> ${AGENT_ICON[event] || ""} ${esc(text)}`;
+    log.appendChild(div);
+    while (log.children.length > 80) log.removeChild(log.firstChild);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function renderApprovals() {
+    $("agent-approval").innerHTML = Object.values(openApprovals).map((m) => `
+      <div class="ask" data-id="${m.data.id}">
+        <b>The supervisor asks for approval</b>
+        <code>${esc(m.data.tool)}(${esc(JSON.stringify(m.data.input))})</code>
+        <div>Why: ${esc(m.text)}</div>
+        <input class="note" maxlength="200" placeholder="Note for the supervisor (optional)">
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <button class="primary" data-ok="1">✅ Approve</button><button data-ok="0">⛔ Reject</button>
+        </div>
+      </div>`).join("");
+  }
+
+  $("agent-approval").addEventListener("click", (e) => {
+    const button = e.target.closest("button[data-ok]");
+    if (!button) return;
+    const box = button.closest(".ask");
+    send({ type: "agent_answer", id: box.dataset.id, ok: button.dataset.ok === "1", note: box.querySelector(".note").value });
+  });
+
+  $("agent-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = $("agent-input").value.trim();
+    if (text) send({ type: "agent_ask", text });
+    $("agent-input").value = "";
+  });
 
   function onHello(msg) {
+    const agent = msg.agent || { enabled: false, history: [] };
+    $("agent-card").hidden = !agent.enabled;
+    if (agent.enabled && !$("agent-log").children.length) {
+      for (const m of agent.history) onAgent(m);
+    }
+    document.getElementById("public-banner").style.display = msg.public ? "block" : "none";
     day = msg.day;
     layout = msg.layout;
     prev = cur = null;
@@ -271,7 +368,13 @@
       `<option value="${s.key}">${esc(s.title)}</option>`).join("");
     select.value = msg.scenario;
     const spec = msg.scenarios.find((s) => s.key === msg.scenario);
-    $("description").textContent = `${spec ? spec.description : ""}  (seed ${msg.seed})`;
+    $("description").textContent = `${spec ? spec.description : ""}  (${msg.random_day ? "random day, " : ""}seed ${msg.seed})`;
+    const t = msg.transport || { mode: "local" };
+    const mqtt = t.mode === "mqtt";
+    $("transport").hidden = !mqtt;
+    $("transport").textContent = mqtt ? `MQTT · ${t.broker} · robots ${t.robots}` : "";
+    $("k-lost").hidden = !mqtt;
+    $("legend-lost").hidden = !mqtt;
     resize();
   }
 
@@ -317,6 +420,12 @@
           map.drawTrail(trails[r.id] || [], r, !!selected);
         }
       }
+      const slid = {};
+      for (const p of cur.people || []) {
+        const before = (prev.people || []).find((x) => x.id === p.id) || p;
+        slid[p.id] = [before.pos[0] + (p.pos[0] - before.pos[0]) * frac, before.pos[1] + (p.pos[1] - before.pos[1]) * frac];
+      }
+      map.drawPeople(cur.people, cur.known_people, slid);
       for (const r of cur.robots) {
         const before = prev.robots.find((x) => x.id === r.id) || r;
         const row = before.pos[0] + (r.pos[0] - before.pos[0]) * frac;
@@ -356,9 +465,15 @@
     $("k-idle").textContent = `${k.robots_idle} idle`;
     $("k-charging").textContent = `${k.robots_charging} charging`;
     $("k-broken").textContent = `${k.robots_broken} broken`;
+    $("k-lost").textContent = `${k.robots_lost || 0} lost`;
   }
 
   function taskLabel(r) {
+    if (r.task === "lost") {
+      if (r.seen == null) return "Lost (never answered)";
+      const silent = r.seen < 60 ? `${r.seen.toFixed(0)} s` : `${Math.floor(r.seen / 60)} min`;
+      return `Lost (silent ${silent}) · start its robot program to bring it back`;
+    }
     return r.status === "error" ? `Broken (${r.repair} left)` : TASK_LABEL[r.task] || r.task;
   }
 
@@ -413,7 +528,10 @@
     const k = cur.kpis;
     if (cur.finished) {
       $("sign-title").textContent = "Closed for the day";
-      $("sign-when").textContent = `${day.date} · orders stopped at ${day.close}, robots finished at ${day.end}`;
+      const notDone = k.orders_waiting + k.orders_in_progress;
+      $("sign-when").textContent = notDone
+        ? `${day.date} · orders stopped at ${day.close} · stopped at ${cur.clock} with work left over`
+        : `${day.date} · orders stopped at ${day.close} · last order delivered at ${cur.clock}`;
       $("sign-facts").innerHTML = [
         [k.orders_delivered, "delivered"], [k.late_orders, "late"],
         [k.orders_waiting + k.orders_in_progress, "not done"],
@@ -458,6 +576,7 @@
   $("play").addEventListener("click", () => send({ type: cur && cur.running ? "pause" : "start" }));
   $("step").addEventListener("click", () => send({ type: "step" }));
   $("reset").addEventListener("click", () => send({ type: "reset" }));
+  $("newday").addEventListener("click", () => send({ type: "new_day" }));
   $("scenario").addEventListener("change", (e) => send({ type: "scenario", key: e.target.value }));
   $("speed").addEventListener("input", (e) => {
     $("speed-out").textContent = `${e.target.value} t/s`;

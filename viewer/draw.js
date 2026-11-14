@@ -27,6 +27,7 @@
     to_charger: v("--charge"),
     charging: v("--charge"),
     error: v("--error"),
+    lost: v("--lost") || "#3b4252",
   };
   const TASK_LABEL = {
     idle: "Idle",
@@ -36,10 +37,12 @@
     to_dropoff: "Carrying",
     to_charger: "Going to charge",
     charging: "Charging",
+    lost: "Lost (no signal)",
   };
   const SHELF_TINTS = ["#e8eefc", "#e6f4ec", "#fdf1df", "#f3e8fb", "#fde8e8", "#e6f3f6"];
 
   function robotColor(robot) {
+    if (robot.task === "lost") return COLOR.lost;
     if (robot.status === "error") return COLOR.error;
     return COLOR[robot.task] || COLOR.idle;
   }
@@ -141,6 +144,43 @@
         ctx.moveTo(x + p, y + p); ctx.lineTo(x + cell - p, y + cell - p);
         ctx.moveTo(x + cell - p, y + p); ctx.lineTo(x + p, y + cell - p);
         ctx.stroke();
+      }
+    };
+
+    // Restockers. people: [{id, kind, pos, task}] where they really are; known: [{id, cell, seen_by}]
+    // where the ROBOTS believe they are (a dashed ring with "P1?"). Both differ when a person has
+    // walked on since a robot last saw them.
+    map.drawPeople = (people = [], known = [], positions = {}) => {
+      const cell = map.cell;
+      for (const k of known) {
+        const [r, c] = k.cell;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = "#d64545"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(cx(c), cy(r), cell * 0.4, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#d64545";
+        ctx.font = `700 ${Math.round(cell * 0.24)}px system-ui, sans-serif`;
+        ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+        ctx.fillText(`${k.id}?`, cx(c), r * cell + cell * 0.16);
+      }
+      for (const p of people) {
+        const [row, col] = positions[p.id] || p.pos;
+        const x = cx(col), y = cy(row);
+        if (p.kind === "robot") {                      // restocking robot: a yellow square
+          const s = cell * 0.56;
+          ctx.fillStyle = "#e0a800";
+          ctx.fillRect(x - s / 2, y - s / 2, s, s);
+          ctx.strokeStyle = "#7a5c00"; ctx.lineWidth = 1.5; ctx.strokeRect(x - s / 2, y - s / 2, s, s);
+        } else {                                       // a person: body and head
+          ctx.fillStyle = "#2e9e5b";
+          ctx.beginPath(); ctx.arc(x, y + cell * 0.08, cell * 0.22, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = "#e0b48f";
+          ctx.beginPath(); ctx.arc(x, y - cell * 0.2, cell * 0.12, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.fillStyle = p.kind === "robot" ? "#3a2c00" : "#fff";
+        ctx.font = `700 ${Math.round(cell * 0.22)}px system-ui, sans-serif`;
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(p.id, x, y + cell * 0.08);
       }
     };
 

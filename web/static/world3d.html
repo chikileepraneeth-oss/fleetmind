@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FleetMind 3D</title>
+<style>
+  :root {
+    --bg: #eef0f3; --card: #fff; --ink: #1d2330; --muted: #6b7280; --line: #e3e6eb; --accent: #2f6fdf;
+    --idle: #8a8f98; --to-pickup: #2f6fdf; --to-dropoff: #1f9d55; --charge: #d99a00; --error: #d64545; --lost: #3b4252;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px;
+    background: var(--card); border-bottom: 1px solid var(--line); }
+  h1 { font-size: 17px; margin: 0; } h1 span { color: var(--muted); font-weight: 400; }
+  button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: #f1f3f6; color: var(--muted); white-space: nowrap; }
+  .pill.live { background: #e6f4ec; color: #1f7a45; } .pill.off { background: #fde8e8; color: #b03030; }
+  .stats { display: flex; gap: 14px; margin-left: auto; flex-wrap: wrap; }
+  .stats b { font-size: 16px; } .stats span { color: var(--muted); font-size: 12px; margin-left: 3px; }
+  main { position: relative; height: calc(100% - 54px); }
+  #view { position: absolute; inset: 0; }
+  aside { position: absolute; top: 12px; right: 12px; width: 250px; max-height: calc(100% - 24px); overflow: auto;
+    background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  aside h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 4px 0 6px; }
+  .robot { display: grid; grid-template-columns: 14px 32px 1fr 44px; gap: 6px; align-items: center; padding: 5px 4px;
+    border-radius: 8px; cursor: pointer; }
+  .robot:hover { background: #f4f6f9; } .robot.sel { background: #e8effc; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .small { color: var(--muted); font-size: 12px; }
+  .bar { height: 6px; background: #e3e6eb; border-radius: 3px; overflow: hidden; } .bar div { height: 100%; }
+  .hint { position: absolute; left: 12px; bottom: 12px; background: rgba(255,255,255,.9); border: 1px solid var(--line);
+    border-radius: 10px; padding: 8px 10px; font-size: 12px; color: var(--muted); max-width: 520px; }
+  .hint b { color: var(--ink); }
+  #msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 15px; pointer-events: none; }
+  @media (max-width: 700px) { aside { display: none; } .stats { margin-left: 0; } }
+  #public-banner { display: none; background: #1d2330; color: #fff; font-size: 13px; padding: 7px 16px; text-align: center; }
+  #public-banner a { color: #9cc0ff; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="public-banner">Public demo of <b>FleetMind</b>, a warehouse robot fleet with a central brain.
+  You share this warehouse with everyone watching: press Start, pick a scenario or a random day.
+  <a href="https://github.com/chikileepraneeth-oss/fleetmind" target="_blank" rel="noopener">Code and results on GitHub</a></div>
+<header>
+  <h1>FleetMind <span>3D</span></h1>
+  <button id="play" class="primary">▶ Start</button>
+  <button id="reset" title="The same day again (same seed)">⟲ Reset</button>
+  <button id="newday" title="A new random seed: other breakdowns, boxes, orders">🎲 New random day</button>
+  <button id="overview">Overview</button>
+  <span class="pill" id="conn">connecting…</span>
+  <span class="pill" id="source"></span>
+  <a href="/" style="color:var(--accent);text-decoration:none">2D view →</a>
+  <div class="stats">
+    <div><b id="s-time">0</b><span id="s-time-label">tick</span></div>
+    <div><b id="s-delivered">0</b><span>delivered</span></div>
+    <div><b id="s-ontime">–</b><span>on time</span></div>
+    <div><b id="s-queue">0</b><span>waiting</span></div>
+    <div><b id="s-lost">0</b><span>lost</span></div>
+  </div>
+</header>
+<main>
+  <div id="view"></div>
+  <div id="msg">Loading the 3D world…</div>
+  <aside>
+    <h2>Robots (click to follow)</h2>
+    <div id="robots"></div>
+  </aside>
+  <div class="hint">
+    <b>This is the Isaac Sim world</b> (isaac/warehouse.usda), drawn in your browser and moved live by the fleet manager.
+    Drag to turn · scroll to zoom · right-drag to move · click a robot to follow it.
+  </div>
+</main>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const $ = (id) => document.getElementById(id);
+const css = getComputedStyle(document.documentElement);
+const COLOR = {
+  idle: css.getPropertyValue("--idle").trim(), to_home: css.getPropertyValue("--idle").trim(),
+  to_pickup: css.getPropertyValue("--to-pickup").trim(), to_dropoff: css.getPropertyValue("--to-dropoff").trim(),
+  to_charger: css.getPropertyValue("--charge").trim(), charging: css.getPropertyValue("--charge").trim(),
+  wait_charger: css.getPropertyValue("--charge").trim(), error: css.getPropertyValue("--error").trim(),
+  lost: css.getPropertyValue("--lost").trim(),
+};
+const LABEL = { idle: "Idle", to_home: "Going home", wait_charger: "Waiting for charger", to_pickup: "Going to shelf",
+  to_dropoff: "Carrying", to_charger: "Going to charge", charging: "Charging", lost: "Lost (no signal)" };
+const colorOf = (r) => r.task === "lost" ? COLOR.lost : r.status === "error" ? COLOR.error : (COLOR[r.task] || COLOR.idle);
+const taskOf = (r) => r.task === "lost" ? "Lost (no signal)" : r.status === "error" ? `Broken (${r.repair} left)` : (LABEL[r.task] || r.task);
+
+// USD world (metres, Z up)  ->  three.js (Y up):  (x, y, z)usd -> (x, z, -y)
+const fromUsd = (c) => new THREE.Vector3(c[0], c[2], -c[1]);
+const cellToWorld = (row, col) => new THREE.Vector3(col + 0.5, 0, row + 0.5);
+
+// ---------------------------------------------------------------- scene
+const view = $("view");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#dfe4ea");
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI / 2.05;
+scene.add(new THREE.HemisphereLight("#ffffff", "#8090a0", 1.6));
+const sun = new THREE.DirectionalLight("#ffffff", 2.2);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+scene.add(sun, sun.target);
+
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+
+function label(text, sub, px = 64) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256; canvas.height = sub ? 160 : 96;
+  const g = canvas.getContext("2d");
+  g.fillStyle = "rgba(255,255,255,.88)";
+  g.beginPath(); g.roundRect(4, 4, 248, canvas.height - 8, 18); g.fill();
+  g.fillStyle = "#1d2330"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.font = `700 ${px}px system-ui, sans-serif`;
+  g.fillText(text, 128, sub ? 56 : 50);
+  if (sub) { g.font = "500 40px system-ui, sans-serif"; g.fillStyle = "#5b6475"; g.fillText(sub, 128, 120); }
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
+  sprite.scale.set(0.9, 0.9 * canvas.height / 256, 1);
+  sprite.renderOrder = 10;
+  return sprite;
+}
+
+function boxMesh(b, opts = {}) {
+  const [sx, sy, sz] = b.size;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sz, sy),
+    new THREE.MeshStandardMaterial({ color: new THREE.Color(...b.colour), roughness: 0.75, ...opts }));
+  mesh.position.copy(fromUsd(b.centre));
+  mesh.castShadow = b.size[2] > 0.05;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// ---------------------------------------------------------------- the world from the USD file
+let world = null;
+const robots = {};                 // id -> {group, body, crate, tag, from, to, yaw, path line}
+let robotParts = {};
+const blockedGroup = new THREE.Group(); scene.add(blockedGroup);
+const routeGroup = new THREE.Group(); scene.add(routeGroup);
+
+async function loadWorld() {
+  const res = await fetch("/world.json");
+  if (!res.ok) { $("msg").textContent = (await res.json()).error || "Could not load the 3D world"; return; }
+  world = await res.json();
+  $("source").textContent = `world: ${world.source}`;
+  for (const b of world.boxes) {
+    scene.add(boxMesh(b));
+    if (b.kind === "shelf") {
+      const tag = label(b.shelf, b.item, 70);
+      tag.position.copy(fromUsd(b.centre)).add(new THREE.Vector3(0, b.size[2] / 2 + 0.35, 0));
+      tag.scale.multiplyScalar(0.8);
+      scene.add(tag);
+    }
+  }
+  robotParts = world.robot_parts;
+  buildWalkable();
+  const deskSpot = cellToWorld(desk[0], desk[1]);
+  const deskTag = label("Staff desk", "technicians wait here", 56);
+  deskTag.position.copy(deskSpot).setY(1.9); deskTag.scale.multiplyScalar(0.7);
+  scene.add(deskTag);
+  const clerk = human("#3b6fd4");                   // someone always stays at the desk
+  clerk.position.copy(deskSpot).add(new THREE.Vector3(0, 0, -0.45));
+  scene.add(clerk);
+  const cx = world.width / 2, cz = world.depth / 2;
+  sun.position.set(cx - 6, 18, cz - 4); sun.target.position.set(cx, 0, cz);
+  const s = sun.shadow.camera; s.left = -14; s.right = 14; s.top = 14; s.bottom = -14; s.updateProjectionMatrix();
+  overview();
+  $("msg").textContent = "";
+}
+
+function overview() {
+  if (!world) return;
+  following = null;
+  const cx = world.width / 2, cz = world.depth / 2;
+  controls.target.set(cx, 0, cz);
+  camera.position.set(cx - 2, 14, cz + 13);
+  renderList();
+}
+
+function makeRobot(id) {
+  const group = new THREE.Group();
+  const parts = (robotParts[id] || robotParts[Object.keys(robotParts)[0]] || []);
+  let body = null;
+  for (const p of parts) {
+    const mesh = boxMesh(p);
+    group.add(mesh);
+    if (p.name === "Body") body = mesh;
+  }
+  const crate = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.28),
+    new THREE.MeshStandardMaterial({ color: "#c8955a", roughness: 0.9 }));
+  crate.position.set(-0.08, 0.47, 0); crate.castShadow = true; crate.visible = false;
+  group.add(crate);
+  const tag = label(id, null, 64);
+  tag.position.set(0, 0.95, 0); tag.scale.multiplyScalar(0.55);
+  group.add(tag);
+  group.traverse((o) => { o.userData.robot = id; });
+  scene.add(group);
+  const line = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: "#2f6fdf", dashSize: 0.15, gapSize: 0.1 }));
+  routeGroup.add(line);
+  return { group, body, crate, line, from: null, to: null, yaw: 0, targetYaw: 0 };
+}
+
+// ---------------------------------------------------------------- live state
+let cur = null, arrivedAt = 0, stepSeconds = 1 / 6, following = null;
+
+function onState(msg) {
+  const firstOrReset = !cur || msg.tick < cur.tick || msg.tick > cur.tick + 1;
+  cur = msg;
+  arrivedAt = performance.now();
+  stepSeconds = 1 / Math.max(1, msg.speed || 6);
+  for (const r of msg.robots) {
+    const R = robots[r.id] || (robots[r.id] = makeRobot(r.id));
+    const target = cellToWorld(r.pos[0], r.pos[1]);
+    R.from = firstOrReset || !R.to ? target.clone() : R.group.position.clone();
+    if (!firstOrReset && R.to && !target.equals(R.to)) {
+      const d = target.clone().sub(R.to);
+      R.targetYaw = Math.atan2(-d.z, d.x);              // face the way it drives
+    }
+    R.to = target;
+    if (firstOrReset) { R.group.position.copy(target); }
+    const colour = new THREE.Color(colorOf(r));
+    if (R.body) R.body.material.color.copy(colour);
+    R.group.traverse((o) => { if (o.material && o !== R.crate && !o.isSprite) { o.material.transparent = r.task === "lost"; o.material.opacity = r.task === "lost" ? 0.45 : 1; } });
+    R.crate.visible = !!r.carrying;
+    // planned route
+    const pts = [target.clone().setY(0.04), ...r.path.map(([row, col]) => cellToWorld(row, col).setY(0.04))];
+    R.line.geometry.dispose();
+    R.line.geometry = new THREE.BufferGeometry().setFromPoints(pts.length > 1 ? pts : []);
+    R.line.computeLineDistances();
+    R.line.material.color.copy(colour);
+    R.r = r;
+  }
+  for (const id of Object.keys(robots)) {
+    if (!msg.robots.some((r) => r.id === id)) { scene.remove(robots[id].group); routeGroup.remove(robots[id].line); delete robots[id]; }
+  }
+  renderBlocked(msg);
+  updateTechnicians(msg);
+  updateRestockers(msg, firstOrReset);
+  renderStats();
+  renderList();
+}
+
+// ---------------------------------------------------------------- blocked cells: WHAT is there and WHY
+const mat = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.8, ...extra });
+const BLOCK_TITLE = { box: "Fallen box", spill: "Spill", pallet: "Pallet left here", person: "Restocking",
+  closed: "Aisle closed", lost_robot: "Lost robot" };
+let blockedKey = "";
+
+function timeOf(tick) {
+  if (!cur || !cur.clock) return `tick ${tick}`;
+  const m = 6 * 60 + tick;
+  return `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+function prop(kind) {
+  const g = new THREE.Group();
+  if (kind === "box") {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.35, 0.4), mat("#a0703c"));
+    b.position.y = 0.17; b.rotation.y = 0.5; b.castShadow = true; g.add(b);
+    const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.25, 0.3), mat("#b8844a"));
+    b2.position.set(0.18, 0.12, 0.2); b2.rotation.y = -0.4; b2.castShadow = true; g.add(b2);
+  } else if (kind === "spill") {
+    const s = new THREE.Mesh(new THREE.CircleGeometry(0.42, 24), mat("#4a90d9", { transparent: true, opacity: 0.75, roughness: 0.1 }));
+    s.rotation.x = -Math.PI / 2; s.position.y = 0.012; s.scale.set(1, 0.7, 1); g.add(s);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.35, 12), mat("#f2c200"));
+    cone.position.set(0.3, 0.17, 0.25); g.add(cone);
+  } else if (kind === "pallet") {
+    for (let i = 0; i < 3; i++) {
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.04, 0.18), mat("#c49a6c"));
+      slat.position.set(0, 0.13, -0.25 + i * 0.25); slat.castShadow = true; g.add(slat);
+    }
+    for (const x of [-0.35, 0, 0.35]) {
+      const block = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.11, 0.7), mat("#a87c50"));
+      block.position.set(x, 0.055, 0); g.add(block);
+    }
+  } else if (kind === "person") {
+    g.add(human("#2e9e5b"));
+    const cart = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.3), mat("#7a8494"));
+    cart.position.set(0.3, 0.2, 0.15); cart.castShadow = true; g.add(cart);
+  } else if (kind === "closed") {
+    for (const x of [-0.3, 0.3]) {
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.45, 12), mat("#e8501f"));
+      cone.position.set(x, 0.22, 0); g.add(cone);
+    }
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.06, 0.06), mat("#ffffff"));
+    bar.position.y = 0.38; g.add(bar);
+  }
+  return g;
+}
+
+function renderBlocked(msg) {
+  const info = msg.blocked_info || msg.blocked.map((cell) => ({ cell, why: "blocked", kind: "box", until: null }));
+  const key = JSON.stringify(info);
+  if (key === blockedKey) return;                       // nothing changed: keep the meshes and labels
+  blockedKey = key;
+  blockedGroup.clear();
+  const labelled = new Set();
+  for (const b of info) {
+    const [row, col] = b.cell;
+    if (b.kind !== "lost_robot") {
+      const p = prop(b.kind);
+      p.position.copy(cellToWorld(row, col));
+      blockedGroup.add(p);
+    }
+    if (labelled.has(b.why)) continue;                  // one label per closed aisle, not per cell
+    labelled.add(b.why);
+    const sub = b.until != null ? `until ${timeOf(b.until)}`
+      : b.kind === "closed" ? b.why.split(": ").slice(1).join(": ").slice(0, 18) : "";
+    const tag = label(BLOCK_TITLE[b.kind] || "Blocked", sub, 52);
+    tag.position.copy(cellToWorld(row, col)).setY(b.kind === "person" ? 2.0 : 1.0);
+    tag.scale.multiplyScalar(0.75);
+    tag.userData.why = b.why;
+    blockedGroup.add(tag);
+  }
+}
+
+// ---------------------------------------------------------------- people
+function human(vest) {
+  const g = new THREE.Group();
+  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.8, 10), mat("#2d3a55"));
+  legs.position.y = 0.4; g.add(legs);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.14, 0.6, 12), mat(vest));
+  body.position.y = 1.05; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 12), mat("#e0b48f"));
+  head.position.y = 1.5; g.add(head);
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat("#f2c200"));
+  helmet.position.y = 1.53; g.add(helmet);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.08), mat(vest));
+  arm.position.set(0.22, 1.05, 0); arm.name = "arm"; g.add(arm);
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+
+// ---------------------------------------------------------------- technicians: desk -> broken robot -> desk
+const techs = {};                   // robot id -> technician
+window.fleet3d = { techs, robots };  // for checking from the browser console (read only)
+const techGroup = new THREE.Group(); scene.add(techGroup);
+let walkable = null, desk = null;   // set from the world
+
+function buildWalkable() {
+  walkable = Array.from({ length: Math.round(world.depth) }, () => Array(Math.round(world.width)).fill(true));
+  for (const b of world.boxes) {
+    if ((b.kind === "wall" || b.kind === "shelf") && b.cell) walkable[b.cell[0]][b.cell[1]] = false;
+    if (b.kind === "desk") desk = b.cell;
+  }
+  desk = desk || [walkable.length - 2, 1];
+}
+
+function walkPath(from, to) {
+  // shortest walk through the aisles (BFS on the grid), from cell to cell
+  const key = (c) => c[0] * 1000 + c[1];
+  const prev = new Map([[key(from), null]]);
+  const queue = [from];
+  while (queue.length) {
+    const c = queue.shift();
+    if (c[0] === to[0] && c[1] === to[1]) break;
+    for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const n = [c[0] + dr, c[1] + dc];
+      if (!walkable[n[0]] || !walkable[n[0]][n[1]] || prev.has(key(n))) continue;
+      prev.set(key(n), c); queue.push(n);
+    }
+  }
+  if (!prev.has(key(to))) return [from, to];
+  const path = [];
+  for (let c = to; c; c = prev.get(key(c))) path.unshift(c);
+  return path;
+}
+
+function standSpot(robotCell) {
+  // a free cell next to the robot, so the technician stands beside it, not inside it
+  const taken = new Set(cur.robots.map((r) => r.pos.join()));
+  for (const [dr, dc] of [[0, -1], [0, 1], [1, 0], [-1, 0]]) {
+    const n = [robotCell[0] + dr, robotCell[1] + dc];
+    if (walkable[n[0]] && walkable[n[0]][n[1]] && !taken.has(n.join())) return n;
+  }
+  return robotCell;
+}
+
+function pointOnPath(path, f) {
+  const pts = path.map(([r, c]) => cellToWorld(r, c));
+  if (pts.length === 1) return pts[0].clone();
+  const x = Math.min(1, Math.max(0, f)) * (pts.length - 1);
+  const i = Math.min(pts.length - 2, Math.floor(x));
+  return pts[i].clone().lerp(pts[i + 1], x - i);
+}
+
+function updateTechnicians(msg) {
+  if (!walkable) return;
+  for (const r of msg.robots) {
+    // a broken robot is repaired; a LOST robot is restarted (rescue_in: ticks until the technician has done it)
+    const lostRescue = r.task === "lost" && r.rescue_in > 0;
+    const broken = (r.status === "error" && r.task !== "lost" && r.repair > 0) || lostRescue;
+    const repairLeft = lostRescue ? r.rescue_in : r.repair;
+    let T = techs[r.id];
+    if (broken && !T) {
+      const path = walkPath(desk, standSpot(r.pos));
+      const outTicks = Math.max(1, Math.round(repairLeft * 0.3));   // 30% of the repair time to walk there
+      const g = human("#ff7a00");
+      const tag = label("Technician", `${lostRescue ? "restarts" : "repairs"} ${r.id}`, 56);
+      tag.position.set(0, 2.05, 0);                      // (position is read-only: set it, don't replace it)
+      tag.scale.multiplyScalar(0.6);
+      g.add(tag);
+      g.position.copy(pointOnPath(path, 0));              // starts at the desk
+      techGroup.add(g);
+      T = techs[r.id] = { robot: r.id, path, start: msg.tick, outTicks, phase: "out", group: g, robotCell: r.pos };
+    }
+    if (T && !broken && T.phase !== "back") {
+      T.phase = "back"; T.backStart = msg.tick; T.backTicks = T.outTicks;
+    }
+  }
+  for (const [id, T] of Object.entries(techs)) {
+    const gone = !msg.robots.some((r) => r.id === id);
+    if (gone || (T.phase === "back" && msg.tick >= T.backStart + T.backTicks) || msg.tick < T.start) {
+      techGroup.remove(T.group); delete techs[id];
+    }
+  }
+}
+
+// ---------------------------------------------------------------- restockers (people or robots)
+const restockers = {};               // id -> {group, from, to, yaw, label text}
+const believedGroup = new THREE.Group(); scene.add(believedGroup);
+let believedKey = "";
+window.fleet3d.restockers = restockers;
+
+function restockText(p) {
+  return { idle: "waiting", to_dock: "to the dock", loading: "loading goods",
+    to_shelf: `carrying to ${p.shelf}`, restocking: `restocking ${p.shelf}` }[p.task] || p.task;
+}
+
+function makeRestocker(p) {
+  const g = new THREE.Group();
+  if (p.kind === "robot") {
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.3, 0.5), mat("#e0a800"));
+    body.position.y = 0.2; body.castShadow = true; g.add(body);
+    for (let i = 0; i < 2; i++) {
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.3), mat("#c8955a"));
+      crate.position.set(0, 0.45 + i * 0.21, 0); crate.castShadow = true; crate.name = "crate"; g.add(crate);
+    }
+  } else {
+    g.add(human("#2e9e5b"));
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.25), mat("#c8955a"));
+    box.position.set(0, 1.0, 0.25); box.name = "crate"; g.add(box);
+  }
+  scene.add(g);
+  return { group: g, from: null, to: null, yaw: 0, targetYaw: 0, text: "", tag: null, kind: p.kind };
+}
+
+function updateRestockers(msg, reset) {
+  const people = msg.people || [];
+  for (const p of people) {
+    const R = restockers[p.id] || (restockers[p.id] = makeRestocker(p));
+    const target = cellToWorld(p.pos[0], p.pos[1]);
+    R.from = reset || !R.to ? target.clone() : R.group.position.clone();
+    if (!reset && R.to && !target.equals(R.to)) {
+      const d = target.clone().sub(R.to);
+      R.targetYaw = Math.atan2(-d.z, d.x);
+    }
+    R.to = target;
+    if (reset) R.group.position.copy(target);
+    R.group.traverse((o) => { if (o.name === "crate") o.visible = !!p.carrying || p.kind === "robot" && p.task !== "to_dock"; });
+    const text = restockText(p);
+    if (text !== R.text) {                          // a new label only when the task changes
+      if (R.tag) R.group.remove(R.tag);
+      R.tag = label(p.id, text, 60);
+      R.tag.position.set(0, p.kind === "robot" ? 1.25 : 2.05, 0);
+      R.tag.scale.multiplyScalar(0.6);
+      R.group.add(R.tag);
+      R.text = text;
+    }
+  }
+  for (const id of Object.keys(restockers)) {
+    if (!people.some((p) => p.id === id)) { scene.remove(restockers[id].group); delete restockers[id]; }
+  }
+  // where the robots BELIEVE the people are
+  const known = msg.known_people || [];
+  const key = JSON.stringify(known.map((k) => [k.id, k.cell, k.seen_by]));
+  if (key === believedKey) return;
+  believedKey = key;
+  believedGroup.clear();
+  for (const k of known) {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.45, 32),
+      new THREE.MeshBasicMaterial({ color: "#d64545", transparent: true, opacity: 0.8, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.copy(cellToWorld(k.cell[0], k.cell[1])).setY(0.02);
+    believedGroup.add(ring);
+    const tag = label(`${k.id}?`, k.seen_by === "badge" ? "badge" : `seen by ${k.seen_by}`, 60);
+    tag.position.copy(cellToWorld(k.cell[0], k.cell[1])).setY(0.55);
+    tag.scale.multiplyScalar(0.5);
+    believedGroup.add(tag);
+  }
+}
+
+function animateRestockers(t) {
+  for (const R of Object.values(restockers)) {
+    if (!R.to) continue;
+    R.group.position.lerpVectors(R.from, R.to, t);
+    let d = R.targetYaw - R.yaw;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    R.yaw += d * 0.25;
+    R.group.rotation.y = R.kind === "robot" ? R.yaw : R.yaw + Math.PI / 2;   // people face the way they walk
+  }
+}
+
+function animateTechnicians(t) {
+  if (!cur) return;
+  const now = cur.tick + (cur.running ? t : 0);
+  for (const T of Object.values(techs)) {
+    const g = T.group, arm = g.getObjectByName("arm");
+    let f, back = false;
+    if (T.phase === "back") { f = (now - T.backStart) / T.backTicks; back = true; }
+    else f = (now - T.start) / T.outTicks;
+    const p = pointOnPath(T.path, back ? 1 - f : f);
+    const prevPos = g.position.clone();
+    g.position.copy(p);
+    const moving = (back && f < 1) || (!back && f < 1);
+    if (moving) {
+      const d = p.clone().sub(prevPos);
+      if (d.lengthSq() > 1e-6) g.rotation.y = Math.atan2(d.x, d.z);
+      g.position.y = Math.abs(Math.sin(performance.now() / 120)) * 0.04;        // walking
+      if (arm) arm.rotation.x = Math.sin(performance.now() / 120) * 0.6;
+    } else {
+      const target = cellToWorld(T.robotCell[0], T.robotCell[1]);              // repairing: face the robot
+      g.rotation.y = Math.atan2(target.x - p.x, target.z - p.z);
+      if (arm) arm.rotation.x = -1.1 + Math.sin(performance.now() / 90) * 0.35;  // working with a tool
+    }
+  }
+}
+
+function renderStats() {
+  const k = cur.kpis;
+  $("s-time").textContent = cur.clock || cur.tick;
+  $("s-time-label").textContent = cur.clock ? "" : "tick";
+  $("s-delivered").textContent = k.orders_delivered;
+  $("s-ontime").textContent = k.on_time_rate == null ? "–" : `${Math.round(k.on_time_rate * 100)}%`;
+  $("s-queue").textContent = k.orders_waiting;
+  $("s-lost").textContent = k.robots_lost || 0;
+  $("play").textContent = cur.running ? "❚❚ Pause" : "▶ Start";
+  $("play").disabled = !!cur.finished;
+}
+
+function renderList() {
+  if (!cur) return;
+  $("robots").innerHTML = cur.robots.map((r) => `
+    <div class="robot ${r.id === following ? "sel" : ""}" data-id="${r.id}">
+      <span class="dot" style="background:${colorOf(r)}"></span><b>${r.id}</b>
+      <span>${taskOf(r)}<div class="small">${r.carrying ? r.carrying + " · " + r.order : (r.order || "")}</div></span>
+      <span><div class="bar"><div style="width:${r.battery}%;background:${r.battery < 25 ? COLOR.error : "#5b6475"}"></div></div>
+        <div class="small" style="text-align:right">${Math.round(r.battery)}%</div></span>
+    </div>`).join("");
+}
+$("robots").addEventListener("click", (e) => {
+  const row = e.target.closest(".robot");
+  if (row) follow(row.dataset.id);
+});
+
+function follow(id) {
+  following = following === id ? null : id;
+  if (!following) return overview();
+  const R = robots[id];
+  camera.position.copy(R.group.position).add(new THREE.Vector3(-3, 4, 4));
+  renderList();
+}
+
+// click a robot in 3D
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+renderer.domElement.addEventListener("click", (e) => {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  ray.setFromCamera(mouse, camera);
+  const hit = ray.intersectObjects(Object.values(robots).map((R) => R.group), true)[0];
+  if (hit) follow(hit.object.userData.robot);
+});
+
+// ---------------------------------------------------------------- animation
+function animate() {
+  requestAnimationFrame(animate);
+  const t = Math.min(1, (performance.now() - arrivedAt) / 1000 / stepSeconds);
+  for (const R of Object.values(robots)) {
+    if (!R.to) continue;
+    R.group.position.lerpVectors(R.from, R.to, t);
+    let d = R.targetYaw - R.yaw;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    R.yaw += d * 0.25;
+    R.group.rotation.y = R.yaw;
+  }
+  animateTechnicians(t);
+  animateRestockers(t);
+  if (following && robots[following]) {
+    const p = robots[following].group.position;
+    const delta = p.clone().sub(controls.target);
+    controls.target.add(delta); camera.position.add(delta);
+  }
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ---------------------------------------------------------------- connection
+let ws = null;
+function connect() {
+  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  ws.onopen = () => { $("conn").textContent = "live"; $("conn").className = "pill live"; };
+  ws.onclose = () => { $("conn").textContent = "disconnected"; $("conn").className = "pill off"; setTimeout(connect, 1000); };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "state") onState(msg);
+    if (msg.type === "hello") {
+      cur = null;
+      document.getElementById("public-banner").style.display = msg.public ? "block" : "none";
+    }
+  };
+}
+const send = (c) => ws && ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(c));
+$("play").onclick = () => send({ type: cur && cur.running ? "pause" : "start" });
+$("reset").onclick = () => send({ type: "reset" });
+$("newday").onclick = () => send({ type: "new_day" });
+$("overview").onclick = overview;
+
+resize();
+await loadWorld();
+connect();
+animate();
+</script>
+</body>
+</html>
