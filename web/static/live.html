@@ -20,6 +20,7 @@
     --to-dropoff: #1f9d55;
     --charge: #d99a00;
     --error: #d64545;
+    --lost: #3b4252;
   }
   * { box-sizing: border-box; }
   body {
@@ -73,6 +74,7 @@
   }
   .shutter.up { transform: translateY(-101%); }
   .shutter[hidden] { display: none; }
+  .kpi.robots i[hidden], .conn[hidden], .legend span[hidden] { display: none; }
   .sign {
     background: var(--panel); border-radius: 12px; padding: 18px 26px; text-align: center;
     box-shadow: 0 6px 24px rgba(0,0,0,.25); min-width: 260px;
@@ -137,6 +139,7 @@
   <select id="scenario" aria-label="Scenario"></select>
   <div id="description"></div>
   <span class="conn" id="conn">connecting…</span>
+  <span class="conn" id="transport" hidden></span>
   <a href="/viewer/index.html" style="color:var(--accent);text-decoration:none;white-space:nowrap">Replay viewer →</a>
 </header>
 
@@ -153,6 +156,7 @@
       <i style="--c:var(--idle)" id="k-idle">0 idle</i>
       <i style="--c:var(--charge)" id="k-charging">0 charging</i>
       <i style="--c:var(--error)" id="k-broken">0 broken</i>
+      <i style="--c:var(--lost)" id="k-lost" hidden>0 lost</i>
     </b>
     <span>robots</span>
   </div>
@@ -191,6 +195,7 @@
         <span><i style="background:var(--to-dropoff)"></i>Carrying to packing</span>
         <span><i style="background:var(--charge)"></i>Charging</span>
         <span><i style="background:var(--error)"></i>Broken</span>
+        <span id="legend-lost" hidden><i style="background:var(--lost)"></i>Lost (no heartbeat)</span>
         <span>Dashed line = planned route · Ring = battery · X = blocked cell</span>
       </div>
     </div>
@@ -272,6 +277,12 @@
     select.value = msg.scenario;
     const spec = msg.scenarios.find((s) => s.key === msg.scenario);
     $("description").textContent = `${spec ? spec.description : ""}  (seed ${msg.seed})`;
+    const t = msg.transport || { mode: "local" };
+    const mqtt = t.mode === "mqtt";
+    $("transport").hidden = !mqtt;
+    $("transport").textContent = mqtt ? `MQTT · ${t.broker} · robots ${t.robots}` : "";
+    $("k-lost").hidden = !mqtt;
+    $("legend-lost").hidden = !mqtt;
     resize();
   }
 
@@ -356,9 +367,11 @@
     $("k-idle").textContent = `${k.robots_idle} idle`;
     $("k-charging").textContent = `${k.robots_charging} charging`;
     $("k-broken").textContent = `${k.robots_broken} broken`;
+    $("k-lost").textContent = `${k.robots_lost || 0} lost`;
   }
 
   function taskLabel(r) {
+    if (r.task === "lost") return r.seen == null ? "Lost (never answered)" : `Lost (silent ${r.seen.toFixed(0)} s)`;
     return r.status === "error" ? `Broken (${r.repair} left)` : TASK_LABEL[r.task] || r.task;
   }
 

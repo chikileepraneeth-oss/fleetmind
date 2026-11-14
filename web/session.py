@@ -22,11 +22,16 @@ Messages (all are dicts with a "type" field):
         {"type": "start"} {"type": "pause"} {"type": "step"} {"type": "reset"}
         {"type": "speed", "value": 10}
         {"type": "scenario", "key": "rush_hour"}
+
+Over MQTT (LiveSession(broker=...)): the session does not step the simulation
+itself. A FleetLink (scripts/fleet_link.py) does: it sends VDA 5050 orders to
+the robots and reads their states back. Robots that stop answering are "lost".
 """
 
 from scripts.demand import clock, OPEN_HOUR, CLOSE_HOUR
 from scripts.record import build_simulation, layout_data, snapshot
 from scripts.scenarios import SCENARIOS
+from scripts.fleet_link import FleetLink, start_robots
 
 DEFAULT_LAYOUT = "layouts/main_warehouse.json"
 MIN_SPEED, MAX_SPEED = 1, 60      # ticks per second
@@ -36,14 +41,28 @@ RECENT_EVENTS = 50                # how many past events a newly opened tab gets
 # Everything else (no task, going home) counts as idle.
 BUSY_TASKS = {"to_pickup", "to_dropoff"}
 CHARGING_TASKS = {"to_charger", "charging", "wait_charger"}
+INIT_WAIT = 2.0                   # seconds to wait for robots to answer initPosition (MQTT)
 
 
 class LiveSession:
 
-    def __init__(self, layout_path=DEFAULT_LAYOUT, scenario="normal", speed=6):
+    def __init__(self, layout_path=DEFAULT_LAYOUT, scenario="normal", speed=6,
+                 broker=None, robots="inproc", broker_name="", link_options=None):
+        """
+        broker=None: the simulation runs here, as before.
+        broker=InMemoryBroker() or MqttBroker(...): the fleet runs over MQTT.
+            robots="inproc"   the session starts a simulated robot for every robot of the scenario
+            robots="external" the robots run somewhere else (python -m scripts.robot_agent)
+        """
         self.layout_path = layout_path
         self.speed = speed
         self.running = False
+        self.broker = broker
+        self.robots_mode = robots
+        self.broker_name = broker_name
+        self.link_options = link_options or {}
+        self.agents = {}               # robot id -> RobotAgent (only robots="inproc")
+        self.link = None
         self.load_scenario(scenario)
 
     # ------------------------------------------------------------------
@@ -57,11 +76,35 @@ class LiveSession:
         self.scenario = key
         self.sim = build_simulation(key, self.layout_path)
         self.running = False
+        if self.broker is not None:
+            self._connect_fleet()
         self._events_sent = 0     # how many of sim.events the browsers have already received
         # A realistic day (1 tick = 1 minute from 06:00) has an end: the scenario's last tick
         # (orders stop at 22:00, the robots finish until then). Other scenarios run forever.
         spec = SCENARIOS[key]
         self.day_end = spec["ticks"] if spec["config"].get("demand") == "realistic" else None
+
+    def _connect_fleet(self):
+        """Make sure every robot of this scenario has a running robot (inproc), then take control."""
+        if self.robots_mode == "inproc":
+            missing = [rid for rid in sorted(self.sim.warehouse.robots) if rid not in self.agents]
+            heartbeat = type(self.broker).__name__ != "InMemoryBroker"
+            for agent in start_robots(self.broker, missing, self.layout_path, heartbeat=heartbeat):
+                self.agents[agent.serial] = agent
+        if self.link is None:
+            self.link = FleetLink(self.sim, self.broker, wait=INIT_WAIT, **self.link_options)
+        else:
+            self.link.attach(self.sim, wait=INIT_WAIT)
+
+    def check_link(self):
+        """While paused: notice robots that went silent or came back. True if anything changed."""
+        return self.link.check_heartbeats() if self.link else False
+
+    def close(self):
+        for agent in self.agents.values():
+            agent.stop()
+        if self.link:
+            self.link.close()
 
     @property
     def finished(self):
@@ -85,7 +128,10 @@ class LiveSession:
         if self.finished:
             self.running = False
             return
-        self.sim.step()
+        if self.link:
+            self.link.step()
+        else:
+            self.sim.step()
         if self.finished:
             self.running = False                  # closing time: stop by itself
 
@@ -147,7 +193,14 @@ class LiveSession:
             # the latest events, so a tab opened in the middle of a run isn't empty
             "events": [list(e) for e in self.sim.events[-RECENT_EVENTS:]],
             "day": self.day_info(),
+            "transport": self.transport_info(),
         }
+
+    def transport_info(self):
+        """How the manager talks to the robots: directly ("local") or over MQTT."""
+        if self.link is None:
+            return {"mode": "local"}
+        return {"mode": "mqtt", "broker": self.broker_name or "in-memory", "robots": self.robots_mode}
 
     def day_info(self):
         """For a realistic day: the date and opening hours (None for scenarios that run forever)."""
@@ -177,6 +230,10 @@ class LiveSession:
             events = []
 
         frame = snapshot(self.sim)            # robots, blocked cells, queue: same format as the replay viewer
+        if self.link:
+            links = self.link.link_status()
+            for robot in frame["robots"]:
+                robot.update(links.get(robot["id"], {}))
         return {
             "type": "state",
             "tick": frame["tick"],
@@ -196,11 +253,13 @@ class LiveSession:
         k = self.sim.kpis()
         tick = self.sim.tick
         k["throughput"] = round(k["orders_delivered"] / tick * 100, 1) if tick else 0.0
-        broken = sum(1 for r in robots if r["status"] == "error")
+        lost = sum(1 for r in robots if r["task"] == "lost")
+        broken = sum(1 for r in robots if r["status"] == "error") - lost
         busy = sum(1 for r in robots if r["status"] != "error" and r["task"] in BUSY_TASKS)
         charging = sum(1 for r in robots if r["status"] != "error" and r["task"] in CHARGING_TASKS)
         k["robots_busy"] = busy
         k["robots_charging"] = charging
         k["robots_broken"] = broken
-        k["robots_idle"] = len(robots) - busy - charging - broken
+        k["robots_lost"] = lost
+        k["robots_idle"] = len(robots) - busy - charging - broken - lost
         return k

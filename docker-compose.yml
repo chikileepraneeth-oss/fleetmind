@@ -1,0 +1,14 @@
+# The MQTT broker for FleetMind: Eclipse Mosquitto in Docker.
+#   docker compose up -d       start it (in the background)
+#   docker compose logs -f     see who connects
+#   docker compose down        stop it
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.20
+    container_name: fleetmind-mosquitto
+    ports:
+      - "1883:1883"        # MQTT
+      - "9001:9001"        # MQTT over WebSockets (for a browser, later)
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped

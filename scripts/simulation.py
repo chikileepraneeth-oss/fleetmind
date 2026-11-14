@@ -104,6 +104,8 @@ class Simulation:
         self._last_position = {}
         self._empty_since = {}
         self.rescues = 0
+        self.lost = set()                              # robots the manager can't reach (no heartbeat)
+        self.lost_cells = {}                           # lost robot id -> the cell it blocks
 
         # waiting zones: a queue per packing station, and open cells to wait in
         self.packing = warehouse.cells_of_type(PACKING)
@@ -182,6 +184,8 @@ class Simulation:
         # robots with an empty battery: staff come and swap the battery after a while
         for robot in self._robots():
             rid = robot.robot_id
+            if rid in self.lost:
+                continue
             if robot.battery < Robot.BATTERY_PER_STEP and self.warehouse.cell_type(robot.position) != CHARGER:
                 self._empty_since.setdefault(rid, self.tick)
                 if self.tick - self._empty_since[rid] >= self.config.rescue_after:
@@ -192,7 +196,7 @@ class Simulation:
             else:
                 self._empty_since.pop(rid, None)
         for robot in self._robots():
-            if robot.status == RobotStatus.ERROR:
+            if robot.status == RobotStatus.ERROR and robot.robot_id not in self.lost:
                 repaired, _ = robot.tick_repair()
                 if repaired:
                     self.log("repaired", robot.robot_id)
@@ -343,6 +347,15 @@ class Simulation:
     def _act_dropoff(self, robot):
         order = robot.order
         station = tuple(order.dropoff)
+        if station in self.warehouse.blocked and robot.position != station:
+            # e.g. a lost robot stands on it: deliver to another packing station
+            other = self._least_busy_station(robot)
+            if other != station:
+                self._leave_station_queues(robot.robot_id)
+                order.dropoff = station = other
+                robot.target = None
+                robot.path = []
+                self.log("station_changed", robot.robot_id, f"{order.order_id}: {order.dropoff} is blocked")
         if robot.position != station and self.config.movement != "greedy" \
                 and not self._admitted(robot, station):
             self._go_wait(robot, station)
@@ -482,11 +495,12 @@ class Simulation:
 
     def _least_busy_station(self, robot):
         here = self.dist.get(robot.position, {})
+        open_stations = [s for s in self.packing if s not in self.warehouse.blocked] or self.packing
         def busy(station):
             waiting = sum(1 for rid in self.station_queue.get(station, [])
                           if self.warehouse.robots[rid].task == "to_dropoff")
             return (waiting, here.get(station, 10**6), station)
-        return min(self.packing, key=busy)
+        return min(open_stations, key=busy)
 
     def _leave_station_queues(self, robot_id):
         for queue in self.station_queue.values():
@@ -542,6 +556,62 @@ class Simulation:
             robot.path = []
             return
         self._drive(robot)
+
+    # ------------------------------------------------------------------
+    # Lost robots (the fleet manager hears nothing from them, see scripts/fleet_link.py)
+    # ------------------------------------------------------------------
+
+    def mark_lost(self, robot_id, reason="no heartbeat"):
+        """
+        We can't reach this robot any more. We don't know what it is doing, so:
+        its order goes back to the front of the queue (another robot does it; an
+        item it carried is treated as lost), and its cell stays booked, so the
+        other robots plan around it instead of driving into it.
+        """
+        robot = self.warehouse.robots[robot_id]
+        if robot_id in self.lost:
+            return False
+        self.lost.add(robot_id)
+        order = robot.order
+        if order is not None and order.status in (OrderStatus.ASSIGNED, OrderStatus.PICKED_UP):
+            order.status = OrderStatus.WAITING
+            self.queue.appendleft(order)
+        self.resume.pop(robot_id, None)
+        self._leave_station_queues(robot_id)
+        self.table.release(robot_id)
+        robot.order = None
+        robot.carrying = None
+        robot.task = "lost"
+        robot.target = None
+        robot.path = []
+        robot.status = RobotStatus.ERROR
+        robot.repair_left = 0
+        # its cell counts as blocked (like a fallen box), so nobody chooses it as a
+        # pick spot or packing station and waits there forever
+        if robot.position not in self.warehouse.blocked:
+            self.warehouse.block_cell(robot.position)
+            self.lost_cells[robot_id] = robot.position
+        self.log("robot_lost", robot_id, f"{reason}; at {robot.position}"
+                 + (f", {order.order_id} back in the queue" if order else ""))
+        return True
+
+    def mark_found(self, robot_id):
+        """The robot answers again. It starts fresh: idle, no order, no load."""
+        if robot_id not in self.lost:
+            return False
+        self.lost.discard(robot_id)
+        cell = self.lost_cells.pop(robot_id, None)
+        if cell is not None:
+            self.warehouse.unblock_cell(cell)
+        robot = self.warehouse.robots[robot_id]
+        robot.task = None
+        robot.target = None
+        robot.path = []
+        robot.carrying = None
+        robot.status = RobotStatus.IDLE
+        self.table.release(robot_id)
+        self.log("robot_found", robot_id, f"at {robot.position}")
+        return True
 
     # ------------------------------------------------------------------
     # Helpers
@@ -621,9 +691,11 @@ class Simulation:
         avoid = None
         if avoid_robots:
             avoid = {pos for pos, rid in self.warehouse.occupied.items() if rid != robot.robot_id}
-        path = astar(self.warehouse, robot.position, robot.target, avoid)
+        through = self._cut_off(robot)
+        path = astar(self.warehouse, robot.position, robot.target, avoid, through_stations=through)
         if path is None and avoid_robots:
-            path = astar(self.warehouse, robot.position, robot.target)   # no way around: keep the normal route
+            # no way around: keep the normal route
+            path = astar(self.warehouse, robot.position, robot.target, through_stations=through)
         robot.path = path or []
         if path:
             self.log("route_planned", robot.robot_id, f"{robot.position} -> {robot.target}, {len(path)} steps")
@@ -663,8 +735,17 @@ class Simulation:
             hold = max(hold, self._ticks_stuck(robot))
             self.table.reserve_stay(robot.robot_id, robot.position, now, now + hold)
 
+    def _cut_off(self, robot):
+        """
+        Has a lost robot closed off every way to the target? Then this robot may drive
+        through a charger or packing station to get out (normally it never does).
+        """
+        return bool(self.lost_cells) and astar(self.warehouse, robot.position, robot.target) is None
+
     def _ticks_stuck(self, robot):
         """For how many more ticks this robot certainly can't move (0 = it can move)."""
+        if robot.robot_id in self.lost:
+            return self.config.window + 1        # unknown: hold the cell, booked again every tick
         if robot.status == RobotStatus.ERROR:
             return robot.repair_left + 1
         if robot.battery < Robot.BATTERY_PER_STEP and self.warehouse.cell_type(robot.position) != CHARGER:
@@ -699,7 +780,8 @@ class Simulation:
         now = self.tick - 1
         self.table.release(rid)
         path = cooperative_astar(self.warehouse, robot.position, robot.target, now,
-                                 self.table, rid, self.dist, window=self.config.window)
+                                 self.table, rid, self.dist, window=self.config.window,
+                                 through_stations=self._cut_off(robot))
         if not path:
             robot.path = []
             self.table.reserve_stay(rid, robot.position, now, now + 2)
@@ -894,4 +976,5 @@ class Simulation:
             "longest_wait": self.max_wait,
             "battery_empty": len(self.battery_empty_logged),
             "battery_rescues": self.rescues,
+            "robots_lost": len(self.lost),
         }

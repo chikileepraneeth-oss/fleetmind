@@ -27,6 +27,7 @@
     to_charger: v("--charge"),
     charging: v("--charge"),
     error: v("--error"),
+    lost: v("--lost") || "#3b4252",
   };
   const TASK_LABEL = {
     idle: "Idle",
@@ -36,10 +37,12 @@
     to_dropoff: "Carrying",
     to_charger: "Going to charge",
     charging: "Charging",
+    lost: "Lost (no signal)",
   };
   const SHELF_TINTS = ["#e8eefc", "#e6f4ec", "#fdf1df", "#f3e8fb", "#fde8e8", "#e6f3f6"];
 
   function robotColor(robot) {
+    if (robot.task === "lost") return COLOR.lost;
     if (robot.status === "error") return COLOR.error;
     return COLOR[robot.task] || COLOR.idle;
   }

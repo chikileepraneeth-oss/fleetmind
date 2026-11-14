@@ -99,7 +99,7 @@ If I make a mistake in the file, it tells me clearly what is wrong. It checks th
 - robots start on a free cell they can drive on, and no two robots start in the same place
 
 ### 5. Wrote tests
-I have **249 tests** in the `tests/` folder. They check the rules, for example:
+I have **306 tests** in the `tests/` folder. They check the rules, for example:
 
 - a robot cannot drive into a wall, a shelf, a blocked cell or another robot
 - moving uses battery, and a robot with no battery cannot move
@@ -117,6 +117,9 @@ I have **249 tests** in the `tests/` folder. They check the rules, for example:
 - the demand has daily peaks and busy weekdays, and the same seed gives the same days
 - the forecast never sees the day it predicts, and LightGBM beats the baseline
 - the real M5 data is added up correctly, and calendar features are known in advance
+- every message is valid VDA 5050, and a wrong message gives a clear error
+- a run over MQTT is exactly the same run, and a robot that dies or goes silent is marked lost
+- nobody waits forever for a lost robot, and a lost robot that comes back works again
 
 ### 6. Charging, breakdowns and repairs
 - A robot can **charge** when it stands on a charger. It gets 5% per tick and stops at 100%.
@@ -304,6 +307,48 @@ Now:
 
 The difference is big when the fleet can't keep up. In "Rush hour" the old rate said about 30% on time. The fair rate says 11%, because most orders are still waiting when the day ends.
 
+### 16. The robots talk to the fleet manager over MQTT
+Until now the fleet manager moved the robots itself: one Python program changed `robot.position` directly. Real robots are separate machines, so now the manager and the robots only talk with **messages**, over **MQTT**, in the format of **VDA 5050** (the standard many warehouse robots use). Later, a robot in Isaac Sim can speak the same messages, and the manager does not need to change.
+
+**MQTT** (`scripts/bus.py`): nobody talks to anyone directly. Everyone publishes messages to *topics* on a **broker** (Mosquitto, in Docker), and the broker passes each message to whoever subscribed to that topic.
+
+**The messages** (`scripts/vda5050.py`), on topics like `uagv/v2/FleetMind/R1/state`:
+
+| Topic | From → to | What it says |
+|---|---|---|
+| `order` | manager → robot | a route: nodes (cells) joined by edges, with actions like `pick` or `drop` on the nodes |
+| `instantActions` | manager → robot | do it now: `startCharging`, `stopCharging`, `initPosition`, `cancelOrder`, `startPause` |
+| `state` | robot → manager | where I am, battery, what I carry, how far I got with my order, errors |
+| `connection` | robot → manager | `ONLINE`, `OFFLINE`, or `CONNECTIONBROKEN` (sent by the broker, see below) |
+| `fleetmind/sim/clock` | manager → all robots | one tick has passed (only in the simulation) |
+
+**How a route works:** the manager sends the whole planned route, but only **releases** the cells a robot may drive to now. The rest is the **horizon**: the robot knows where it is going, but may not go there yet. Every tick the manager sends an **order update** that releases the next cell. This is how the cell bookings from section 11 become messages.
+
+**The robot** (`scripts/robot_agent.py`) only knows the map and itself: its position, battery, load and order. It does not know the other robots or the queue. Each tick it repairs, does its instant actions, drives the released cells, does the node actions and charges, then sends its `state`.
+
+**The manager** (`scripts/fleet_link.py`) still makes every decision with the same simulation code. After each tick it turns what each robot should do into messages, sends the clock, waits for the states and **compares** them with what it expected. The robot is the truth: if a robot says it is somewhere else or has a different battery, the manager believes it and logs `state_mismatch`.
+
+**Lost robots:**
+- Every robot sends its state every tick, and every second when the day is paused. That is its **heartbeat**.
+- If the manager hears nothing from a robot for 3 seconds, the robot is marked **lost**.
+- If a robot's program dies, it can't say goodbye. So when it connects, it leaves a **last will** with the broker: "CONNECTIONBROKEN". The broker sends it for the robot when the connection breaks.
+- A lost robot gets no new work. Its order goes back to the front of the queue. Its cell counts as **blocked**, so other robots drive around it, pick from another spot, or deliver to the other packing station.
+- When a lost robot answers again, the manager takes it back. It believes the robot's position and battery and sends `initPosition`, and the robot starts fresh.
+
+**Results:**
+- **Same seed, same run:** a healthy robot does exactly what it was told, so a run over MQTT is **exactly** the same as before. A test checks this for 4 scenarios. All 13 scenarios gave 0 state mismatches over 400 ticks.
+- Over the real Mosquitto broker, "Normal day" delivers 88 of 90 orders, 0 late, the same as without MQTT. That is 2,222 messages to the robots and 2,630 back.
+- If I kill one robot's program, the website shows it as lost after about 3 seconds, and the other 4 robots keep working with 0 collisions.
+
+**Bugs I found by killing robots:**
+- A robot whose pick spot or packing station was the lost robot's cell waited there **for the rest of the day**. A broken robot never caused this, because a repair ends. Fix: the lost robot's cell counts as blocked.
+- A robot next to the chargers was trapped: its only free neighbour was the lost robot, and robots never drive through chargers or packing stations. Fix: only when a lost robot has closed every other way out, a robot may drive through a station.
+- I lost every robot (R1 to R5) at 18 different moments of a normal day. Before the fixes, robots got stuck forever in about half the cases. After the fixes, the fleet always recovered. The worst case is still a wait of 133 ticks, when a robot dies in the narrow corner next to the packing stations.
+
+**Speed:** one tick over Mosquitto takes about 50 ms, so the website can run about 20 ticks per second. Two things made it slow:
+- The first version took about 90 ms per tick. VDA 5050 says to use QoS 0 for orders and states (QoS 1 only for `connection`), and QoS 0 is also much faster. I also turned off Nagle's algorithm, which holds back small messages.
+- The remaining ~46 ms come from Docker Desktop on Windows: it forwards the port from Windows into its Linux machine. Inside Docker's own network, the same message goes there and back in 0.8 ms.
+
 ---
 
 ## The rules of the warehouse
@@ -374,6 +419,18 @@ Made-up demand contains exactly the patterns I put in, so a forecast can look be
 **I compare the forecast with the perfect average.**
 Without it, a WAPE of 30% looks bad. With it, I can see that most of the error is pure chance that no forecast can remove.
 
+**The manager predicts, the robot confirms.**
+The manager still runs the whole simulation and sends each robot what to do. The robot does it and reports back. If they disagree, the robot wins. So a healthy run stays exactly the same as before, and a robot that does something else (later: physics in Isaac Sim) is still handled.
+
+**The simulation has a clock topic.**
+In a simulation all robots must do one tick together, so the manager sends `fleetmind/sim/clock` and waits for the states. A real robot or Isaac Sim has its own time, so this is the only message that is not VDA 5050.
+
+**Accidents are messages too.**
+Breakdowns, dropped items and battery swaps are made up by the simulation, so the manager tells the robot about them with instant actions that start with `sim` (`simBreakdown`, ...). In Isaac Sim, physics or staff would cause them, and these messages would go away.
+
+**Tests use an in-memory broker.**
+It has the same interface as the real one, so 55 tests run in seconds without Docker. Two more tests use the real Mosquitto, and are skipped when it is not running.
+
 
 ## How to run it
 
@@ -419,6 +476,33 @@ python -m web.server
 
 This starts the server and opens http://127.0.0.1:8000 in your browser. Press **Start**. Stop the server with `Ctrl+C`.
 Use `--no-browser` to not open the browser, or `--port 8080` for another port.
+
+### Run the fleet over MQTT
+
+Start the broker once (needs Docker Desktop):
+
+```powershell
+docker compose up -d
+```
+
+Then:
+
+```powershell
+python -m web.server --mqtt                            # the website; the 5 robots run inside the server
+python -m scripts.fleet_link --broker 127.0.0.1:1883   # a whole scenario without the website
+python -m scripts.fleet_link                           # the same over the in-memory bus (no Docker needed)
+```
+
+To kill a robot and watch it get lost, run the robots in their own programs:
+
+```powershell
+python -m web.server --mqtt external              # terminal 1: the manager and the website
+python -m scripts.robot_agent R1 R2 R3 R4         # terminal 2
+python -m scripts.robot_agent R5                  # terminal 3: press Ctrl+C (goes OFFLINE) or close the window
+```
+
+Only run one fleet on a broker at a time: every robot connects with its own id (R1, R2, ...), and a second R1 throws the first one out.
+`docker compose down` stops the broker.
 
 ### Make the order history and test the forecast
 
@@ -491,6 +575,10 @@ fleetmind/
 │   ├── traffic.py            # cell bookings (reservations) and deadlock detection
 │   ├── record.py             # builds scenarios and records them for the replay viewer
 │   ├── waits.py              # wait report: every long wait and its reason
+│   ├── vda5050.py            # VDA 5050-style messages: build them and check them
+│   ├── bus.py                # MQTT: an in-memory broker for tests and the real one (paho-mqtt)
+│   ├── robot_agent.py        # a robot that only follows messages and reports its state
+│   ├── fleet_link.py         # the manager over MQTT: orders out, states in, lost robots
 │   └── record_tests.py       # records the tests for the test viewer
 ├── web/
 │   ├── session.py            # LiveSession: one running simulation, its commands and messages
@@ -512,11 +600,17 @@ fleetmind/
 │   ├── test_forecast.py      # features without leakage, scores, the forecast beats the baseline
 │   ├── test_waits.py         # the wait report
 │   ├── test_m5.py            # M5 data and real demand (with a tiny fake M5 folder)
+│   ├── test_messages.py      # VDA 5050 messages and the in-memory broker
+│   ├── test_fleet_link.py    # robots and manager over messages, lost and found robots
+│   ├── test_mqtt_broker.py   # the same over a real Mosquitto (skipped without it)
 │   └── conftest.py           # records tests for the test viewer (only when asked)
 ├── viewer/
 │   ├── draw.js               # drawing code shared by the replay viewer and the live website
 │   ├── index.html            # replay viewer
 │   └── tests.html            # test viewer
+├── mosquitto/
+│   └── mosquitto.conf        # the MQTT broker's settings
+├── docker-compose.yml        # starts Mosquitto
 ├── requirements.txt
 └── README.md
 ```

@@ -78,13 +78,15 @@ from scripts.classes import DIRECTIONS, DRIVABLE, CHARGER, PACKING, DOCK
 STATIONS = {CHARGER, PACKING, DOCK}
 
 
-def astar(warehouse, start, goal, avoid=None):
+def astar(warehouse, start, goal, avoid=None, through_stations=False):
     """
     Shortest path from start to goal as a list of cells, NOT including start.
     Example: start (1,1), goal (1,3)  ->  [(1, 2), (1, 3)]
 
     avoid: extra cells to treat as walls (e.g. where other robots stand now).
            The goal itself is never avoided.
+    through_stations: may drive through chargers and packing stations (only to get
+           out of a corner that a lost robot closed off).
     Returns [] if start == goal, or None if there is no way to get there.
     """
     if start == goal:
@@ -96,7 +98,7 @@ def astar(warehouse, start, goal, avoid=None):
                 and warehouse.cell_type(cell) in DRIVABLE
                 and cell not in warehouse.blocked
                 and cell not in avoid
-                and (cell == goal or not is_station(warehouse, cell)))
+                and (cell == goal or through_stations or not is_station(warehouse, cell)))
 
     if not passable(goal):
         return None

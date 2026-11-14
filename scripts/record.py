@@ -115,7 +115,9 @@ def snapshot(sim):
     return {
         "tick": sim.tick,
         "robots": robots,
-        "blocked": [list(c) for c in sorted(sim.warehouse.blocked)],
+        # cells blocked by a lost robot are shown as the robot, not as a blocked cell
+        "blocked": [list(c) for c in sorted(sim.warehouse.blocked)
+                    if c not in getattr(sim, "lost_cells", {}).values()],
         "queue": len(sim.queue),
     }
 
