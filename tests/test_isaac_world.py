@@ -147,3 +147,23 @@ def test_a_pushed_robot_is_believed_by_the_manager(world_fleet):
     assert any(e[2] == "state_mismatch" and e[1] == "R1" for e in sim.events)
     run_with_frames(link, fleet, 30)                        # and the fleet carries on normally
     assert sim.kpis()["collisions"] == 0
+
+
+def test_robots_the_world_does_not_have_join_it(stage):
+    """The 20-robot stress test with a 5-robot world: R6..R20 are added and work, none is lost."""
+    broker = InMemoryBroker()
+    sim = build_simulation("stress_20", LAYOUT)
+    fleet = SimFleet(broker, stage, robot_ids_in(stage), frames_per_tick=3).start()
+    link = FleetLink(sim, broker, state_timeout=5.0)
+    while fleet.busy():
+        fleet.step_frame()
+    assert robot_ids_in(stage) == sorted(sim.warehouse.robots)
+    direct = build_simulation("stress_20", LAYOUT)
+    for _ in range(25):
+        direct.step()
+        run_with_frames(link, fleet, 1)
+    assert snapshot(sim) == snapshot(direct)
+    assert not sim.lost and link.mismatches == 0
+    for rid, robot in fleet.robots.items():
+        x, y, _ = robot.body.get_pose()
+        assert cell_of_point(x, y) == sim.warehouse.robots[rid].position

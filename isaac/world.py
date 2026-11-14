@@ -151,9 +151,21 @@ class WorldBuilder:
                                     (0.95, 0.95, 0.02), "dock", COLOURS["dock"])
                     self.tag(prim, "dock", (r, c))
 
+        self.staff_desk()
         for rid in sorted(wh.robots):
             self.robot(rid, wh.robots[rid].position)
         return self.stage
+
+    def staff_desk(self):
+        """Where the technicians wait, in the loading-dock corner (robots never drive through docks)."""
+        docks = self.wh.cells_of_type(DOCK)
+        if not docks:
+            return
+        cell = min(docks)                                    # the dock in the top-left of the dock row
+        centre = cell_centre(cell)
+        desk = self.box("/World/Staff/Desk", centre + Gf.Vec3d(0, 0, 0.375), (0.8, 0.45, 0.75), "desk", (0.55, 0.40, 0.28))
+        self.tag(desk, "desk", cell)
+        self.box("/World/Staff/Chair", centre + Gf.Vec3d(0, 0.38, 0.22), (0.4, 0.35, 0.44), "wall", COLOURS["wall"])
 
     def robot(self, rid, cell):
         """A simple box robot. Isaac Sim can later swap it for a real robot model (e.g. Nova Carter)."""

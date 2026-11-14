@@ -24,7 +24,7 @@ from scripts.simulation import Simulation, SimConfig
 OUTPUT = os.path.join("viewer", "recordings.js")
 
 
-def build_simulation(key, layout_path):
+def build_simulation(key, layout_path, seed=None):
     """
     Build a fresh Simulation for one scenario: load the layout, apply the
     scenario's robot count, start battery and config. Used by this recorder
@@ -48,7 +48,7 @@ def build_simulation(key, layout_path):
             robot.battery = spec["start_battery"]
 
     config = SimConfig(**spec["config"])
-    return Simulation(warehouse, seed=spec["seed"], config=config)
+    return Simulation(warehouse, seed=spec["seed"] if seed is None else seed, config=config)
 
 
 def record_scenario(key, layout_path):

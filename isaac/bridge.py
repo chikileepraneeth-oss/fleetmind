@@ -24,7 +24,7 @@ import math
 import queue
 import time
 
-from pxr import Gf, UsdGeom
+from pxr import Gf, Sdf, UsdGeom
 
 from isaac.world import cell_centre, cell_of_point
 from scripts.robot_agent import RobotAgent
@@ -128,18 +128,53 @@ class SimRobot(RobotAgent):
 
 
 class SimFleet:
-    """All robots of the world. The simulator calls step_frame() once per rendered frame."""
+    """
+    All robots of the world. The simulator calls step_frame() once per rendered frame.
+
+    Robots can JOIN: when the fleet manager sends initPosition to a robot this world
+    doesn't have yet (e.g. R6..R20 in the 20-robot stress test), a copy of an existing
+    robot's body is added to the world at that cell and connected as a new robot.
+    """
 
     def __init__(self, broker, stage, robot_ids, frames_per_tick=FRAMES_PER_TICK, layout_path=None):
+        self.broker = broker
+        self.stage = stage
         self.inbox = queue.Queue()
-        kw = {"layout_path": layout_path} if layout_path else {}
-        self.robots = {rid: SimRobot(rid, broker, UsdBody(stage, rid), self.inbox, frames_per_tick, **kw)
+        self.frames_per_tick = frames_per_tick
+        self.kw = {"layout_path": layout_path} if layout_path else {}
+        self.robots = {rid: SimRobot(rid, broker, UsdBody(stage, rid), self.inbox, frames_per_tick, **self.kw)
                        for rid in robot_ids}
+        self.watcher = None
 
     def start(self):
         for robot in self.robots.values():
             robot.start(heartbeat=False)     # the heartbeat comes from step_frame (main thread)
+        # listen for robots the manager wants that this world doesn't have yet
+        self.watcher = self.broker.connect("fleetmind-world-spawner")
+        self.watcher.subscribe("uagv/v2/FleetMind/+/instantActions",
+                               lambda topic, msg: self.inbox.put((self._maybe_spawn, (topic, msg))))
         return self
+
+    def _maybe_spawn(self, topic, msg):
+        serial = topic.split("/")[3]
+        if serial in self.robots:
+            return
+        init = [a for a in msg.get("actions", []) if a.get("actionType") == "initPosition"]
+        if not init or not self.robots:
+            return
+        template = next(iter(sorted(self.robots)))
+        layer = self.stage.GetRootLayer()
+        if not Sdf.CopySpec(layer, f"/World/Robots/{template}", layer, f"/World/Robots/{serial}"):
+            return
+        prim = self.stage.GetPrimAtPath(f"/World/Robots/{serial}")
+        attr = prim.GetAttribute("fleetmind:robot_id")
+        if attr:
+            attr.Set(serial)
+        robot = SimRobot(serial, self.broker, UsdBody(self.stage, serial), self.inbox, self.frames_per_tick, **self.kw)
+        self.robots[serial] = robot
+        robot.start(heartbeat=False)
+        robot._receive("instantActions", msg)          # the initPosition it was sent before it existed
+        print(f"[fleetmind] {serial} joined the world")
 
     def step_frame(self, now=None):
         while True:
@@ -161,6 +196,8 @@ class SimFleet:
     def stop(self):
         for robot in self.robots.values():
             robot.stop()
+        if self.watcher:
+            self.watcher.close()
 
 
 def robot_ids_in(stage):

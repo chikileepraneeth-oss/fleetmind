@@ -187,3 +187,45 @@ def test_other_scenarios_run_forever_without_a_clock():
         s.step()
     msg = s.state_message()
     assert msg["clock"] is None and msg["finished"] is False and s.sim.tick == 600
+
+
+# ---------------------------------------------------------------------------
+# A new random day, and WHY a cell is blocked
+# ---------------------------------------------------------------------------
+
+def test_a_new_random_day_differs_and_reset_repeats_it():
+    s = LiveSession(LAYOUT, scenario="normal")
+    first_seed = s.seed
+    s.handle({"type": "new_day"})
+    assert s.seed != first_seed and s.hello_message()["random_day"] is True
+    for _ in range(150):
+        s.step()
+    events = list(s.sim.events)
+    s.handle({"type": "reset"})                       # reset = the SAME random day again
+    for _ in range(150):
+        s.step()
+    assert s.sim.events == events
+    normal = build_simulation("normal", LAYOUT)
+    normal.run(150)
+    assert normal.events != events                     # and it really is another day
+
+
+def test_every_blocked_cell_says_why():
+    s = LiveSession(LAYOUT, scenario="blocked_aisles")
+    for _ in range(40):
+        s.step()
+    info = s.state_message()["blocked_info"]
+    assert info and len(info) == len(s.sim.warehouse.blocked)
+    assert {b["kind"] for b in info} <= {"box", "spill", "pallet", "person", "closed", "lost_robot"}
+    assert all(b["why"] and b["until"] > s.sim.tick for b in info)
+
+
+def test_block_reasons_do_not_change_the_run():
+    """The reasons come from their own random generator: the same seed still gives the same run."""
+    a = build_simulation("blocked_aisles", LAYOUT)
+    a.run(200)
+    assert a.kpis()["blocked_cells"] > 0
+    b = build_simulation("blocked_aisles", LAYOUT)
+    b.story_rng.random()                               # even if the story generator is used differently
+    b.run(200)
+    assert [e[:3] for e in a.events] == [e[:3] for e in b.events]

@@ -99,7 +99,7 @@ If I make a mistake in the file, it tells me clearly what is wrong. It checks th
 - robots start on a free cell they can drive on, and no two robots start in the same place
 
 ### 5. Wrote tests
-I have **349 tests** in the `tests/` folder. They check the rules, for example:
+I have **353 tests** in the `tests/` folder. They check the rules, for example:
 
 - a robot cannot drive into a wall, a shelf, a blocked cell or another robot
 - moving uses battery, and a robot with no battery cannot move
@@ -415,6 +415,33 @@ The tools run inside the live website at `/mcp` (`web/mcp_server.py`), so they s
 **Tested by hand first:** `python -m scripts.mcp_try` calls every tool on the running website (also with wrong inputs) and prints exactly what an AI would get back. 28 tests call the tools through a real MCP client and then let the simulation run on: a paused robot really stays where it is and its order is delivered by another robot, nobody drives into a closed aisle, a created order gets delivered.
 
 **A bug the live test found:** the robots stayed "lost" for ever after a network problem. The broker had thrown them off (a test was using the same robot names on the same broker), they reconnected by themselves and kept working, but the broker still held their last will "CONNECTIONBROKEN". Now a robot says ONLINE again after every reconnect, and the manager treats any fresh state message as proof that a robot is alive. The broker tests also refuse to run on a broker where a fleet is already running.
+
+### 20. A livelier 3D view, and random days
+- **New random day** (button on both pages): the same scenario with a new random seed, so breakdowns, fallen boxes, ordered items and routes are different every time. **Reset** still replays the same day, which is what I need to compare versions fairly.
+- **Why is this cell blocked?** Every blocked cell has a reason: a fallen box, a spill, a pallet left in the aisle, a person restocking, a closed aisle (with the reason the agent or a person gave), or a lost robot. The 3D view shows each one as a different object with a label ("Spill, until 07:12"). The reasons come from their own random generator, so the runs did not change (a test checks this).
+- **Technicians:** when a robot breaks down, a technician in an orange vest walks from the staff desk (in the loading-dock corner, where robots never drive) through the aisles to the robot, repairs it, and walks back when it works again. The walk takes the first 30% of the repair time.
+- **20 robots in the 3D world:** the 3D world has 5 robots. When the manager asks for robots the world doesn't have (R6 to R20 in the stress test), the bridge copies a robot into the world and connects it. Before, they were shown as lost, because nobody was answering for them.
+
+### How much can I trust this simulator?
+Real robots fail in many more ways than my simulation has, so I don't use it to predict exact numbers. I use it to compare ideas and to test software.
+
+**What it leaves out:**
+- Robots move one cell per tick on a grid. No speeds, acceleration, turning or wheel slip.
+- Breakdowns are one random chance per tick with a fixed 30-minute repair. Real robots have many kinds of faults (sensors, lost localisation, motors, software) that happen more after hard use, and repairs take different times.
+- The battery goes down linearly. Real batteries age and drop faster near empty.
+- No people walking around (except as blocked cells), no network delays, and robots always know exactly where they are.
+- The demand is made up, or real M5 daily totals spread over my own hourly curve.
+
+**Why it is still useful:**
+- **Comparing versions:** the same seeds give the same days, so "A* with bookings vs plain A*" or "opportunity vs smart charging" is a fair test. I compare over 10 seeds, not one, because one seed can be lucky. A better idea in the simulator is a good candidate, not a proven win.
+- **Testing software, not robots:** the fleet manager, the MQTT messages, the lost-robot handling, the MCP tools and later the AI agent are real software. The simulator throws problems at them (breakdowns, blocked aisles, robots that disappear) and the tests check that the software reacts correctly. That part transfers to real robots, because real robots speak the same VDA 5050 messages.
+- **Finding bugs before a real warehouse does:** killing robots in the simulator found robots that waited for ever behind a lost robot, and the live test found robots that stayed "lost" after a reconnect.
+
+**How to make it more trustworthy:**
+1. Use real numbers where they exist: failure logs (time between failures, repair times), measured driving speeds, real order data.
+2. Check it against something more real: Isaac Sim with physics, then a small real robot.
+3. Measure how much a result depends on the settings: if smart charging only wins when breakdowns are rare, say so.
+4. Add the failure types that matter most: localisation loss, slow robots, network delays, partial breakdowns.
 
 ---
 

@@ -50,7 +50,8 @@
 <header>
   <h1>FleetMind <span>3D</span></h1>
   <button id="play" class="primary">▶ Start</button>
-  <button id="reset">⟲ Reset</button>
+  <button id="reset" title="The same day again (same seed)">⟲ Reset</button>
+  <button id="newday" title="A new random seed: other breakdowns, boxes, orders">🎲 New random day</button>
   <button id="overview">Overview</button>
   <span class="pill" id="conn">connecting…</span>
   <span class="pill" id="source"></span>
@@ -173,6 +174,14 @@ async function loadWorld() {
     }
   }
   robotParts = world.robot_parts;
+  buildWalkable();
+  const deskSpot = cellToWorld(desk[0], desk[1]);
+  const deskTag = label("Staff desk", "technicians wait here", 56);
+  deskTag.position.copy(deskSpot).setY(1.9); deskTag.scale.multiplyScalar(0.7);
+  scene.add(deskTag);
+  const clerk = human("#3b6fd4");                   // someone always stays at the desk
+  clerk.position.copy(deskSpot).add(new THREE.Vector3(0, 0, -0.45));
+  scene.add(clerk);
   const cx = world.width / 2, cz = world.depth / 2;
   sun.position.set(cx - 6, 18, cz - 4); sun.target.position.set(cx, 0, cz);
   const s = sun.shadow.camera; s.left = -14; s.right = 14; s.top = 14; s.bottom = -14; s.updateProjectionMatrix();
@@ -245,15 +254,208 @@ function onState(msg) {
   for (const id of Object.keys(robots)) {
     if (!msg.robots.some((r) => r.id === id)) { scene.remove(robots[id].group); routeGroup.remove(robots[id].line); delete robots[id]; }
   }
-  // fallen boxes on blocked cells
-  blockedGroup.clear();
-  for (const [row, col] of msg.blocked) {
-    const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), new THREE.MeshStandardMaterial({ color: "#a0703c" }));
-    box.position.copy(cellToWorld(row, col)).setY(0.2); box.rotation.y = 0.5; box.castShadow = true;
-    blockedGroup.add(box);
-  }
+  renderBlocked(msg);
+  updateTechnicians(msg);
   renderStats();
   renderList();
+}
+
+// ---------------------------------------------------------------- blocked cells: WHAT is there and WHY
+const mat = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.8, ...extra });
+const BLOCK_TITLE = { box: "Fallen box", spill: "Spill", pallet: "Pallet left here", person: "Restocking",
+  closed: "Aisle closed", lost_robot: "Lost robot" };
+let blockedKey = "";
+
+function timeOf(tick) {
+  if (!cur || !cur.clock) return `tick ${tick}`;
+  const m = 6 * 60 + tick;
+  return `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+function prop(kind) {
+  const g = new THREE.Group();
+  if (kind === "box") {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.35, 0.4), mat("#a0703c"));
+    b.position.y = 0.17; b.rotation.y = 0.5; b.castShadow = true; g.add(b);
+    const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.25, 0.3), mat("#b8844a"));
+    b2.position.set(0.18, 0.12, 0.2); b2.rotation.y = -0.4; b2.castShadow = true; g.add(b2);
+  } else if (kind === "spill") {
+    const s = new THREE.Mesh(new THREE.CircleGeometry(0.42, 24), mat("#4a90d9", { transparent: true, opacity: 0.75, roughness: 0.1 }));
+    s.rotation.x = -Math.PI / 2; s.position.y = 0.012; s.scale.set(1, 0.7, 1); g.add(s);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.35, 12), mat("#f2c200"));
+    cone.position.set(0.3, 0.17, 0.25); g.add(cone);
+  } else if (kind === "pallet") {
+    for (let i = 0; i < 3; i++) {
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.04, 0.18), mat("#c49a6c"));
+      slat.position.set(0, 0.13, -0.25 + i * 0.25); slat.castShadow = true; g.add(slat);
+    }
+    for (const x of [-0.35, 0, 0.35]) {
+      const block = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.11, 0.7), mat("#a87c50"));
+      block.position.set(x, 0.055, 0); g.add(block);
+    }
+  } else if (kind === "person") {
+    g.add(human("#2e9e5b"));
+    const cart = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.3), mat("#7a8494"));
+    cart.position.set(0.3, 0.2, 0.15); cart.castShadow = true; g.add(cart);
+  } else if (kind === "closed") {
+    for (const x of [-0.3, 0.3]) {
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.45, 12), mat("#e8501f"));
+      cone.position.set(x, 0.22, 0); g.add(cone);
+    }
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.06, 0.06), mat("#ffffff"));
+    bar.position.y = 0.38; g.add(bar);
+  }
+  return g;
+}
+
+function renderBlocked(msg) {
+  const info = msg.blocked_info || msg.blocked.map((cell) => ({ cell, why: "blocked", kind: "box", until: null }));
+  const key = JSON.stringify(info);
+  if (key === blockedKey) return;                       // nothing changed: keep the meshes and labels
+  blockedKey = key;
+  blockedGroup.clear();
+  const labelled = new Set();
+  for (const b of info) {
+    const [row, col] = b.cell;
+    if (b.kind !== "lost_robot") {
+      const p = prop(b.kind);
+      p.position.copy(cellToWorld(row, col));
+      blockedGroup.add(p);
+    }
+    if (labelled.has(b.why)) continue;                  // one label per closed aisle, not per cell
+    labelled.add(b.why);
+    const sub = b.until != null ? `until ${timeOf(b.until)}`
+      : b.kind === "closed" ? b.why.split(": ").slice(1).join(": ").slice(0, 18) : "";
+    const tag = label(BLOCK_TITLE[b.kind] || "Blocked", sub, 52);
+    tag.position.copy(cellToWorld(row, col)).setY(b.kind === "person" ? 2.0 : 1.0);
+    tag.scale.multiplyScalar(0.75);
+    tag.userData.why = b.why;
+    blockedGroup.add(tag);
+  }
+}
+
+// ---------------------------------------------------------------- people
+function human(vest) {
+  const g = new THREE.Group();
+  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.8, 10), mat("#2d3a55"));
+  legs.position.y = 0.4; g.add(legs);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.14, 0.6, 12), mat(vest));
+  body.position.y = 1.05; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 12), mat("#e0b48f"));
+  head.position.y = 1.5; g.add(head);
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat("#f2c200"));
+  helmet.position.y = 1.53; g.add(helmet);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.08), mat(vest));
+  arm.position.set(0.22, 1.05, 0); arm.name = "arm"; g.add(arm);
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+
+// ---------------------------------------------------------------- technicians: desk -> broken robot -> desk
+const techs = {};                   // robot id -> technician
+window.fleet3d = { techs, robots };  // for checking from the browser console (read only)
+const techGroup = new THREE.Group(); scene.add(techGroup);
+let walkable = null, desk = null;   // set from the world
+
+function buildWalkable() {
+  walkable = Array.from({ length: Math.round(world.depth) }, () => Array(Math.round(world.width)).fill(true));
+  for (const b of world.boxes) {
+    if ((b.kind === "wall" || b.kind === "shelf") && b.cell) walkable[b.cell[0]][b.cell[1]] = false;
+    if (b.kind === "desk") desk = b.cell;
+  }
+  desk = desk || [walkable.length - 2, 1];
+}
+
+function walkPath(from, to) {
+  // shortest walk through the aisles (BFS on the grid), from cell to cell
+  const key = (c) => c[0] * 1000 + c[1];
+  const prev = new Map([[key(from), null]]);
+  const queue = [from];
+  while (queue.length) {
+    const c = queue.shift();
+    if (c[0] === to[0] && c[1] === to[1]) break;
+    for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const n = [c[0] + dr, c[1] + dc];
+      if (!walkable[n[0]] || !walkable[n[0]][n[1]] || prev.has(key(n))) continue;
+      prev.set(key(n), c); queue.push(n);
+    }
+  }
+  if (!prev.has(key(to))) return [from, to];
+  const path = [];
+  for (let c = to; c; c = prev.get(key(c))) path.unshift(c);
+  return path;
+}
+
+function standSpot(robotCell) {
+  // a free cell next to the robot, so the technician stands beside it, not inside it
+  const taken = new Set(cur.robots.map((r) => r.pos.join()));
+  for (const [dr, dc] of [[0, -1], [0, 1], [1, 0], [-1, 0]]) {
+    const n = [robotCell[0] + dr, robotCell[1] + dc];
+    if (walkable[n[0]] && walkable[n[0]][n[1]] && !taken.has(n.join())) return n;
+  }
+  return robotCell;
+}
+
+function pointOnPath(path, f) {
+  const pts = path.map(([r, c]) => cellToWorld(r, c));
+  if (pts.length === 1) return pts[0].clone();
+  const x = Math.min(1, Math.max(0, f)) * (pts.length - 1);
+  const i = Math.min(pts.length - 2, Math.floor(x));
+  return pts[i].clone().lerp(pts[i + 1], x - i);
+}
+
+function updateTechnicians(msg) {
+  if (!walkable) return;
+  for (const r of msg.robots) {
+    const broken = r.status === "error" && r.task !== "lost" && r.repair > 0;
+    let T = techs[r.id];
+    if (broken && !T) {
+      const path = walkPath(desk, standSpot(r.pos));
+      const outTicks = Math.max(1, Math.round(r.repair * 0.3));     // 30% of the repair time to walk there
+      const g = human("#ff7a00");
+      const tag = label("Technician", `repairs ${r.id}`, 56);
+      tag.position.set(0, 2.05, 0);                      // (position is read-only: set it, don't replace it)
+      tag.scale.multiplyScalar(0.6);
+      g.add(tag);
+      g.position.copy(pointOnPath(path, 0));              // starts at the desk
+      techGroup.add(g);
+      T = techs[r.id] = { robot: r.id, path, start: msg.tick, outTicks, phase: "out", group: g, robotCell: r.pos };
+    }
+    if (T && !broken && T.phase !== "back") {
+      T.phase = "back"; T.backStart = msg.tick; T.backTicks = T.outTicks;
+    }
+  }
+  for (const [id, T] of Object.entries(techs)) {
+    const gone = !msg.robots.some((r) => r.id === id);
+    if (gone || (T.phase === "back" && msg.tick >= T.backStart + T.backTicks) || msg.tick < T.start) {
+      techGroup.remove(T.group); delete techs[id];
+    }
+  }
+}
+
+function animateTechnicians(t) {
+  if (!cur) return;
+  const now = cur.tick + (cur.running ? t : 0);
+  for (const T of Object.values(techs)) {
+    const g = T.group, arm = g.getObjectByName("arm");
+    let f, back = false;
+    if (T.phase === "back") { f = (now - T.backStart) / T.backTicks; back = true; }
+    else f = (now - T.start) / T.outTicks;
+    const p = pointOnPath(T.path, back ? 1 - f : f);
+    const prevPos = g.position.clone();
+    g.position.copy(p);
+    const moving = (back && f < 1) || (!back && f < 1);
+    if (moving) {
+      const d = p.clone().sub(prevPos);
+      if (d.lengthSq() > 1e-6) g.rotation.y = Math.atan2(d.x, d.z);
+      g.position.y = Math.abs(Math.sin(performance.now() / 120)) * 0.04;        // walking
+      if (arm) arm.rotation.x = Math.sin(performance.now() / 120) * 0.6;
+    } else {
+      const target = cellToWorld(T.robotCell[0], T.robotCell[1]);              // repairing: face the robot
+      g.rotation.y = Math.atan2(target.x - p.x, target.z - p.z);
+      if (arm) arm.rotation.x = -1.1 + Math.sin(performance.now() / 90) * 0.35;  // working with a tool
+    }
+  }
 }
 
 function renderStats() {
@@ -313,6 +515,7 @@ function animate() {
     R.yaw += d * 0.25;
     R.group.rotation.y = R.yaw;
   }
+  animateTechnicians(t);
   if (following && robots[following]) {
     const p = robots[following].group.position;
     const delta = p.clone().sub(controls.target);
@@ -337,6 +540,7 @@ function connect() {
 const send = (c) => ws && ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(c));
 $("play").onclick = () => send({ type: cur && cur.running ? "pause" : "start" });
 $("reset").onclick = () => send({ type: "reset" });
+$("newday").onclick = () => send({ type: "new_day" });
 $("overview").onclick = overview;
 
 resize();

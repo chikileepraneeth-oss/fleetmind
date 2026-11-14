@@ -180,7 +180,8 @@
       <div class="controls">
         <button id="play" class="primary" title="Start / pause (space)">▶ Start</button>
         <button id="step" title="One tick (→)">Step ▸</button>
-        <button id="reset" title="Back to tick 0 (same seed)">⟲ Reset</button>
+        <button id="reset" title="Back to tick 0 (same seed): the same day again">⟲ Reset</button>
+        <button id="newday" title="The same scenario with a new random seed: other breakdowns, boxes, orders">🎲 New random day</button>
         <span class="tick-label" id="tick-label">Tick 0</span>
         <label class="toggle"><input type="checkbox" id="trails" checked> Trails</label>
         <label class="toggle"><input type="checkbox" id="routes" checked> Routes</label>
@@ -277,7 +278,7 @@
       `<option value="${s.key}">${esc(s.title)}</option>`).join("");
     select.value = msg.scenario;
     const spec = msg.scenarios.find((s) => s.key === msg.scenario);
-    $("description").textContent = `${spec ? spec.description : ""}  (seed ${msg.seed})`;
+    $("description").textContent = `${spec ? spec.description : ""}  (${msg.random_day ? "random day, " : ""}seed ${msg.seed})`;
     const t = msg.transport || { mode: "local" };
     const mqtt = t.mode === "mqtt";
     $("transport").hidden = !mqtt;
@@ -479,6 +480,7 @@
   $("play").addEventListener("click", () => send({ type: cur && cur.running ? "pause" : "start" }));
   $("step").addEventListener("click", () => send({ type: "step" }));
   $("reset").addEventListener("click", () => send({ type: "reset" }));
+  $("newday").addEventListener("click", () => send({ type: "new_day" }));
   $("scenario").addEventListener("change", (e) => send({ type: "scenario", key: e.target.value }));
   $("speed").addEventListener("input", (e) => {
     $("speed-out").textContent = `${e.target.value} t/s`;

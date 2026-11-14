@@ -28,6 +28,8 @@ itself. A FleetLink (scripts/fleet_link.py) does: it sends VDA 5050 orders to
 the robots and reads their states back. Robots that stop answering are "lost".
 """
 
+import random
+
 from scripts.demand import clock, OPEN_HOUR, CLOSE_HOUR
 from scripts.record import build_simulation, layout_data, snapshot
 from scripts.scenarios import SCENARIOS
@@ -70,12 +72,16 @@ class LiveSession:
     # Controls
     # ------------------------------------------------------------------
 
-    def load_scenario(self, key):
-        """Build a fresh simulation for this scenario, at tick 0, paused."""
+    def load_scenario(self, key, seed=None):
+        """
+        Build a fresh simulation for this scenario, at tick 0, paused.
+        seed=None: the scenario's own seed (the same day every time, to compare versions).
+        """
         if key not in SCENARIOS:
             raise ValueError(f"unknown scenario '{key}'")
         self.scenario = key
-        self.sim = build_simulation(key, self.layout_path)
+        self.seed = SCENARIOS[key]["seed"] if seed is None else seed
+        self.sim = build_simulation(key, self.layout_path, seed=self.seed)
         self.running = False
         if self.broker is not None:
             self._connect_fleet()
@@ -113,8 +119,12 @@ class LiveSession:
         return self.sim.day_over()
 
     def reset(self):
-        """Back to tick 0 of the same scenario. Same seed, so the same run again."""
-        self.load_scenario(self.scenario)
+        """Back to tick 0 of the same day. Same seed, so the same run again."""
+        self.load_scenario(self.scenario, self.seed)
+
+    def new_day(self):
+        """The same scenario with a new random seed: other breakdowns, blocked cells, items and routes."""
+        self.load_scenario(self.scenario, random.randrange(1, 1_000_000))
 
     def start(self):
         if self.finished:
@@ -172,6 +182,9 @@ class LiveSession:
         if kind == "reset":
             self.reset()
             return [self.hello_message(), self.state_message()]
+        if kind == "new_day":
+            self.new_day()
+            return [self.hello_message(), self.state_message()]
         if kind == "scenario":
             self.load_scenario(command.get("key"))
             return [self.hello_message(), self.state_message()]
@@ -189,7 +202,8 @@ class LiveSession:
             "scenarios": [{"key": k, "title": s["title"], "description": s["description"]}
                           for k, s in SCENARIOS.items()],
             "scenario": self.scenario,
-            "seed": spec["seed"],
+            "seed": self.seed,
+            "random_day": self.seed != spec["seed"],
             "layout": layout_data(self.sim.warehouse),
             # the latest events, so a tab opened in the middle of a run isn't empty
             "events": [list(e) for e in self.sim.events[-RECENT_EVENTS:]],
@@ -241,6 +255,7 @@ class LiveSession:
             "speed": self.speed,
             "robots": frame["robots"],
             "blocked": frame["blocked"],
+            "blocked_info": self.sim.blocked_info(),        # WHY each cell is blocked (the 3D view shows it)
             "queue": frame["queue"],
             "events": [list(e) for e in events],
             "clock": clock(frame["tick"]) if self.realistic else None,   # 1 tick = 1 minute from 06:00

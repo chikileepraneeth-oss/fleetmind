@@ -35,6 +35,16 @@ from scripts import assignment
 from scripts.traffic import ReservationTable, cooperative_astar, find_wait_cycles
 
 
+# What blocks a floor cell for a while (only for showing WHY; the effect is the same)
+BLOCK_REASONS = ["box", "box", "spill", "pallet", "person"]
+BLOCK_TEXT = {
+    "box": "a box fell off a shelf; staff will pick it up",
+    "spill": "a spill on the floor; being cleaned",
+    "pallet": "a pallet was left in the aisle",
+    "person": "a person is working here (restocking)",
+}
+
+
 @dataclass
 class SimConfig:
     """All the numbers that control the simulation, in one place."""
@@ -81,6 +91,9 @@ class Simulation:
         self.seed = seed
         self.config = config or SimConfig()
         self.rng = random.Random(seed)                 # the ONE random generator
+        # only for the WHY of a blocked cell (what fell there). Separate, so it never changes the run.
+        self.story_rng = random.Random(seed * 7919 + 13)
+        self.block_reasons = {}                        # (row, col) -> why it is blocked
 
         self.demand = None
         if self.config.demand == "realistic":
@@ -111,6 +124,7 @@ class Simulation:
         self.lost_cells = {}                           # lost robot id -> the cell it blocks
         self.paused = {}                               # robot id -> (task, target) to continue with after a pause
         self.closed_aisles = {}                        # aisle name -> cells closed by a person or the agent
+        self.aisle_reasons = {}                        # aisle name -> why it was closed
 
         # waiting zones: a queue per packing station, and open cells to wait in
         self.packing = warehouse.cells_of_type(PACKING)
@@ -180,6 +194,7 @@ class Simulation:
             if self.tick >= self.blocked_until[cell]:
                 if cell not in closed:                 # a closed aisle stays closed
                     self.warehouse.unblock_cell(cell)
+                self.block_reasons.pop(cell, None)
                 del self.blocked_until[cell]
                 self.log("cell_cleared", details=str(cell))
 
@@ -266,8 +281,9 @@ class Simulation:
         cell = self.rng.choice(free_floor)
         wh.block_cell(cell)
         self.blocked_until[cell] = self.tick + self.config.block_ticks
+        self.block_reasons[cell] = self.story_rng.choice(BLOCK_REASONS)
         self.blocks += 1
-        self.log("cell_blocked", details=f"{cell} for {self.config.block_ticks} ticks")
+        self.log("cell_blocked", details=f"{cell} for {self.config.block_ticks} ticks: {self.block_reasons[cell]}")
 
     # ------------------------------------------------------------------
     # 5. Charging decisions
@@ -673,6 +689,7 @@ class Simulation:
         for cell in cells:
             self.warehouse.block_cell(cell)
         self.closed_aisles[name] = list(cells)
+        self.aisle_reasons[name] = reason
         self.log("aisle_closed", details=f"{name}: {len(cells)} cells" + (f", {reason}" if reason else ""))
         return True
 
@@ -1057,6 +1074,22 @@ class Simulation:
         if self.tick >= LATEST_END_TICK:
             return True
         return self.tick >= LAST_ORDER_TICK and self.open_orders() == 0
+
+    def blocked_info(self):
+        """Every blocked cell and WHY: {"cell", "why", "kind", "until"} (kind picks the 3D prop)."""
+        out = {}
+        for cell in self.warehouse.blocked:
+            if cell in self.lost_cells.values():
+                rid = next(r for r, c in self.lost_cells.items() if c == cell)
+                out[cell] = {"why": f"{rid} lost its signal here", "kind": "lost_robot", "until": None}
+            elif cell in self.blocked_until:
+                kind = self.block_reasons.get(cell, "box")
+                out[cell] = {"why": BLOCK_TEXT[kind], "kind": kind, "until": self.blocked_until[cell]}
+        for name, cells in self.closed_aisles.items():
+            reason = self.aisle_reasons.get(name) or "no reason given"
+            for cell in cells:
+                out.setdefault(cell, {"why": f"aisle {name} closed: {reason}", "kind": "closed", "until": None})
+        return [{"cell": list(c), **v} for c, v in sorted(out.items())]
 
     def kpis(self):
         delivered = [o for o in self.orders if o.status == OrderStatus.DELIVERED]

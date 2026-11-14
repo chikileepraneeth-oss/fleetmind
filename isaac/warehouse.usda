@@ -1865,6 +1865,19 @@ def Xform "World"
             }
         }
 
+        def Material "desk"
+        {
+            token outputs:surface.connect = </World/Looks/desk/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.55, 0.4, 0.28)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
         def Material "robot"
         {
             token outputs:surface.connect = </World/Looks/robot/Shader.outputs:surface>
@@ -1876,6 +1889,35 @@ def Xform "World"
                 float inputs:roughness = 0.7
                 token outputs:surface
             }
+        }
+    }
+
+    def "Staff"
+    {
+        def Cube "Desk" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            custom int2 fleetmind:cell = (11, 1)
+            custom string fleetmind:kind = "desk"
+            rel material:binding = </World/Looks/desk>
+            color3f[] primvars:displayColor = [(0.55, 0.4, 0.28)]
+            double size = 1
+            float3 xformOp:scale = (0.8, 0.45, 0.75)
+            double3 xformOp:translate = (1.5, -11.5, 0.375)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+
+        def Cube "Chair" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </World/Looks/wall>
+            color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+            double size = 1
+            float3 xformOp:scale = (0.4, 0.35, 0.44)
+            double3 xformOp:translate = (1.5, -11.12, 0.22)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
         }
     }
 
