@@ -82,6 +82,11 @@ class SimConfig:
     demand_seed: int = 7             # realistic: seed of the demand model (the same seed as the order history)
     demand_day: int = 0              # realistic: which day of the demand model to simulate (day 0 = 1 June 2026)
     demand_source: str = "synthetic" # realistic: "synthetic" (made-up days) or "m5" (real Walmart days, day 0 = 2011-01-29)
+    # restocking (scripts/restock.py)
+    restock: str = "none"            # "none", "people" (robots must find them) or "robots" (they book their cells)
+    restockers: int = 2              # how many people / restocking robots
+    sight_range: int = 2             # people: a robot sees a person this many cells away (not through shelves)
+    people_tracking: str = "sightings"  # people: "sightings" (robots find them and tell each other) or "badges" (location tags)
 
 
 class Simulation:
@@ -137,6 +142,13 @@ class Simulation:
         self.waiting = {}                              # robot_id -> ticks waited in a row
         # where each robot parks when it has nothing to do (its start position)
         self.home = {rid: r.position for rid, r in warehouse.robots.items()}
+        self.person_stops = 0                          # a robot had to stop because a person was in its way
+        self.crew = None
+        if self.config.restock != "none":
+            if self.config.movement != "cooperative":
+                raise ValueError("restocking needs movement='cooperative' (people and robots share the bookings)")
+            from scripts.restock import RestockCrew
+            self.crew = RestockCrew(self)
 
         # counters for KPIs
         self.breakdowns = 0
@@ -159,6 +171,8 @@ class Simulation:
         self._repair_robots()
         self._new_orders()
         self._random_events()
+        if self.crew:
+            self.crew.step()                           # people / restock robots move; robots look around
         assignment.battery_safety(self)
         self._send_low_battery_to_charge()
         self._assign_orders()
@@ -364,7 +378,7 @@ class Simulation:
 
         # choose where to stand once; only change it if that spot became unusable
         if robot.target is None or robot.target not in self.warehouse.access_cells(shelf) \
-                or robot.target in self.warehouse.blocked:
+                or robot.target in self.warehouse.blocked or robot.target in self._known_people():
             robot.target = self._pick_spot(robot, shelf)
             robot.path = []
         self._drive(robot)
@@ -735,9 +749,14 @@ class Simulation:
         """The nearest free cell next to the shelf. If all are taken, the nearest one anyway."""
         wh = self.warehouse
         spots = wh.access_cells(shelf)
+        people = self._known_people()
         free = [s for s in spots
-                if s not in wh.blocked and wh.occupied.get(s, robot.robot_id) == robot.robot_id]
+                if s not in wh.blocked and s not in people and wh.occupied.get(s, robot.robot_id) == robot.robot_id]
         return nearest(robot.position, free or spots)
+
+    def _known_people(self):
+        """Cells where the robots KNOW a person or a restock robot stands (not where they really are)."""
+        return self.crew.known_cells() if self.crew else set()
 
     def _drive(self, robot):
         """Move the robot one step towards robot.target."""
@@ -807,6 +826,8 @@ class Simulation:
 
     def _count_stuck(self, robot, reason):
         self.stuck_steps += 1
+        if reason.startswith("person"):
+            self.person_stops += 1
         self.waiting[robot.robot_id] = self.waiting.get(robot.robot_id, 0) + 1
         if reason == "battery empty" and robot.robot_id not in self.battery_empty_logged:
             self.battery_empty_logged.add(robot.robot_id)
@@ -839,6 +860,8 @@ class Simulation:
             # can move again, so the others plan a way around it instead of waiting behind it
             hold = max(hold, self._ticks_stuck(robot))
             self.table.reserve_stay(robot.robot_id, robot.position, now, now + hold)
+        if self.crew:
+            self.crew.book_standing(now)
 
     def _cut_off(self, robot):
         """
@@ -1123,4 +1146,8 @@ class Simulation:
             "battery_empty": len(self.battery_empty_logged),
             "battery_rescues": self.rescues,
             "robots_lost": len(self.lost),
+            "restocks": self.crew.restocks if self.crew else 0,
+            "people_reports": self.crew.reports if self.crew else 0,
+            "reroutes_for_people": self.crew.reroutes if self.crew else 0,
+            "stops_for_people": self.person_stops,
         }

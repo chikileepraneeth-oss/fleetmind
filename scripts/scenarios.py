@@ -95,6 +95,22 @@ SCENARIOS = {
         "ticks": 1020,
         "config": {"demand": "realistic", "demand_seed": 7, "demand_day": 123},
     },
+    "restock_people": {
+        "title": "Restocking by people",
+        "description": "2 people carry goods from the docks to the shelves. The robots don't know where they are: "
+                       "a robot that sees a person tells every robot, and routes through that spot are planned again.",
+        "seed": 42,
+        "ticks": 500,
+        "config": {"restock": "people"},
+    },
+    "restock_robots": {
+        "title": "Restocking by robots",
+        "description": "The same restock jobs, done by 2 restocking robots. They book their route like every robot, "
+                       "so nobody has to find them. Compare with Restocking by people.",
+        "seed": 42,
+        "ticks": 500,
+        "config": {"restock": "robots"},
+    },
     "talking_robots": {
         "title": "Talking robots (MQTT story)",
         "description": "2 robots, low batteries and breakdowns, so every kind of message happens early. "

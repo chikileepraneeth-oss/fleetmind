@@ -121,6 +121,7 @@ def snapshot(sim):
         "blocked": [list(c) for c in sorted(sim.warehouse.blocked)
                     if c not in getattr(sim, "lost_cells", {}).values()],
         "queue": len(sim.queue),
+        **(sim.crew.snapshot() if getattr(sim, "crew", None) else {}),   # restocking people / robots
     }
 
 
