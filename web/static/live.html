@@ -130,6 +130,16 @@
     opacity: 0; transition: opacity .2s; pointer-events: none;
   }
   #toast.show { opacity: 1; }
+  .agent-log { max-height: 300px; overflow-y: auto; font-size: 13px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .agent-log .m { padding: 6px 8px; border-radius: 8px; background: #f4f6f9; }
+  .agent-log .m b { font-weight: 600; }
+  .agent-log .m.tool { background: #eef3fc; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .agent-log .m.approval { background: #fff4d6; } .agent-log .m.rejected { background: #fde8e8; }
+  .agent-log .m.finished { background: #e6f4ec; }
+  #agent-approval .ask { border: 2px solid #d99a00; border-radius: 10px; padding: 10px; margin-bottom: 8px; background: #fffaf0; }
+  #agent-approval .ask code { display: block; margin: 6px 0; white-space: pre-wrap; font-size: 12px; }
+  #agent-approval input, #agent-form input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+  #agent-form { display: flex; gap: 6px; } #agent-form input { flex: 1; }
   #public-banner { display: none; background: #1d2330; color: #fff; font-size: 13px; padding: 7px 16px; text-align: center; }
   #public-banner a { color: #9cc0ff; }
 </style>
@@ -209,6 +219,15 @@
   </section>
 
   <aside class="side">
+    <div class="card" id="agent-card" hidden>
+      <h2>AI supervisor <span class="small" id="agent-busy"></span></h2>
+      <div id="agent-approval"></div>
+      <div id="agent-log" class="agent-log"></div>
+      <form id="agent-form" autocomplete="off">
+        <input id="agent-input" maxlength="500" placeholder="e.g. Prepare for a big delivery at 2 pm">
+        <button type="submit">Send</button>
+      </form>
+    </div>
     <div class="card" id="follow-card" hidden>
       <h2>Following <span id="follow-id"></span> <span class="small">(click it again to stop)</span></h2>
       <div id="follow"></div>
@@ -259,6 +278,7 @@
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === "hello") onHello(msg);
+      else if (msg.type === "agent") onAgent(msg);
       else if (msg.type === "state") onState(msg);
       else if (msg.type === "error") toast(msg.message);
     };
@@ -271,7 +291,71 @@
 
   let day = null;             // realistic day: {date, open, close, latest_end}, else null
 
+  // ------------------------------------------------------------------
+  // The AI supervisor: its log, requests, and Approve / Reject
+  // ------------------------------------------------------------------
+  const AGENT_ICON = { queued: "🕓", task: "📋", plan: "🗺️", thinking: "💭", tool: "🔧", approval: "✋",
+    approval_closed: "", rejected: "⛔", check: "🔎", finished: "🏁" };
+  const openApprovals = {};
+
+  function onAgent(msg) {
+    const d = msg.data || {};
+    if (msg.event === "approval") { openApprovals[d.id] = msg; renderApprovals(); }
+    if (msg.event === "approval_closed") { delete openApprovals[d.id]; renderApprovals(); }
+    if (msg.event === "task") $("agent-busy").textContent = "· working";
+    if (msg.event === "finished") $("agent-busy").textContent = "";
+    if (msg.event === "approval_closed" || msg.event === "approval") {
+      if (msg.event === "approval_closed") addAgentLine(msg.tick, "approval", `${d.approved ? "✅ Approved" : "⛔ Rejected"}${d.note ? ": " + d.note : ""}`);
+      return;
+    }
+    let text = msg.text;
+    if (msg.event === "finished") text += `  (${d.tool_calls} tool calls, $${(d.cost_usd || 0).toFixed(3)})`;
+    addAgentLine(msg.tick, msg.event, text);
+  }
+
+  function addAgentLine(tick, event, text) {
+    const log = $("agent-log");
+    const div = document.createElement("div");
+    div.className = `m ${event}`;
+    div.innerHTML = `<span class="small">${tick}</span> ${AGENT_ICON[event] || ""} ${esc(text)}`;
+    log.appendChild(div);
+    while (log.children.length > 80) log.removeChild(log.firstChild);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function renderApprovals() {
+    $("agent-approval").innerHTML = Object.values(openApprovals).map((m) => `
+      <div class="ask" data-id="${m.data.id}">
+        <b>The supervisor asks for approval</b>
+        <code>${esc(m.data.tool)}(${esc(JSON.stringify(m.data.input))})</code>
+        <div>Why: ${esc(m.text)}</div>
+        <input class="note" maxlength="200" placeholder="Note for the supervisor (optional)">
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <button class="primary" data-ok="1">✅ Approve</button><button data-ok="0">⛔ Reject</button>
+        </div>
+      </div>`).join("");
+  }
+
+  $("agent-approval").addEventListener("click", (e) => {
+    const button = e.target.closest("button[data-ok]");
+    if (!button) return;
+    const box = button.closest(".ask");
+    send({ type: "agent_answer", id: box.dataset.id, ok: button.dataset.ok === "1", note: box.querySelector(".note").value });
+  });
+
+  $("agent-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = $("agent-input").value.trim();
+    if (text) send({ type: "agent_ask", text });
+    $("agent-input").value = "";
+  });
+
   function onHello(msg) {
+    const agent = msg.agent || { enabled: false, history: [] };
+    $("agent-card").hidden = !agent.enabled;
+    if (agent.enabled && !$("agent-log").children.length) {
+      for (const m of agent.history) onAgent(m);
+    }
     document.getElementById("public-banner").style.display = msg.public ? "block" : "none";
     day = msg.day;
     layout = msg.layout;

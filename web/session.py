@@ -45,6 +45,7 @@ RECENT_EVENTS = 50                # how many past events a newly opened tab gets
 BUSY_TASKS = {"to_pickup", "to_dropoff"}
 CHARGING_TASKS = {"to_charger", "charging", "wait_charger"}
 INIT_WAIT = 2.0                   # seconds to wait for robots to answer initPosition (MQTT)
+LOST_RESCUE_TICKS = 25            # a technician walks to a lost robot and restarts it (minutes)
 
 
 class LiveSession:
@@ -83,6 +84,10 @@ class LiveSession:
         self.scenario = key
         self.seed = SCENARIOS[key]["seed"] if seed is None else seed
         self.sim = build_simulation(key, self.layout_path, seed=self.seed)
+        # robots that lose their connection now and then (only with MQTT: there "lost" exists)
+        self.lost_chance = SCENARIOS[key].get("lost_chance", 0.0)
+        self.fault_rng = random.Random(self.seed * 17 + 3)
+        self.rescue = {}                   # lost robot id -> tick when the technician has restarted it
         self.running = False
         if self.broker is not None:
             self._connect_fleet()
@@ -141,11 +146,50 @@ class LiveSession:
             self.running = False
             return
         if self.link:
+            self._connection_faults()
             self.link.step()
+            self._rescue_lost_robots()
         else:
             self.sim.step()
         if self.finished:
             self.running = False                  # closing time: stop by itself
+
+    def _connection_faults(self):
+        """Scenario "Connection trouble": now and then a robot's connection drops (it crashes)."""
+        if not self.lost_chance or self.robots_mode != "inproc":
+            return
+        for rid in sorted(self.agents):
+            agent = self.agents[rid]
+            if rid in self.sim.warehouse.robots and rid not in self.sim.lost and agent.conn and agent.conn.open \
+                    and self.fault_rng.random() < self.lost_chance:
+                agent.crash()                          # the broker sends its last will: CONNECTIONBROKEN
+
+    def _rescue_lost_robots(self):
+        """
+        A lost robot is not given up: a technician walks to where it was last seen and restarts it.
+        Robots this website runs itself come back; a robot program in someone's terminal must be
+        restarted by hand (the technician can only report it).
+        """
+        sim = self.sim
+        for rid in list(self.rescue):
+            if rid not in sim.lost:                    # it came back by itself
+                del self.rescue[rid]
+        for rid in sorted(sim.lost):
+            if rid not in self.rescue:
+                self.rescue[rid] = sim.tick + LOST_RESCUE_TICKS
+                sim.log("technician_sent", rid, f"to {sim.warehouse.robots[rid].position} to restart it")
+            elif sim.tick >= self.rescue[rid]:
+                if self.robots_mode == "inproc":
+                    old = self.agents.get(rid)
+                    if old and old.conn and old.conn.open:
+                        old.crash()
+                    self.agents[rid] = start_robots(self.broker, [rid], self.layout_path,
+                                                    heartbeat=type(self.broker).__name__ != "InMemoryBroker")[0]
+                    sim.log("technician_restarted", rid, "the robot is switched on again")
+                    del self.rescue[rid]
+                else:
+                    sim.log("technician_report", rid, "can't restart it here: restart its robot program by hand")
+                    self.rescue[rid] = sim.tick + 10 ** 9
 
     def set_speed(self, value):
         """Ticks per second. Kept between MIN_SPEED and MAX_SPEED."""
@@ -250,6 +294,8 @@ class LiveSession:
             links = self.link.link_status()
             for robot in frame["robots"]:
                 robot.update(links.get(robot["id"], {}))
+                if robot["id"] in self.rescue and self.rescue[robot["id"]] - self.sim.tick < 10 ** 6:
+                    robot["rescue_in"] = max(0, self.rescue[robot["id"]] - self.sim.tick)
         return {
             "type": "state",
             "tick": frame["tick"],

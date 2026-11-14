@@ -413,13 +413,16 @@ function pointOnPath(path, f) {
 function updateTechnicians(msg) {
   if (!walkable) return;
   for (const r of msg.robots) {
-    const broken = r.status === "error" && r.task !== "lost" && r.repair > 0;
+    // a broken robot is repaired; a LOST robot is restarted (rescue_in: ticks until the technician has done it)
+    const lostRescue = r.task === "lost" && r.rescue_in > 0;
+    const broken = (r.status === "error" && r.task !== "lost" && r.repair > 0) || lostRescue;
+    const repairLeft = lostRescue ? r.rescue_in : r.repair;
     let T = techs[r.id];
     if (broken && !T) {
       const path = walkPath(desk, standSpot(r.pos));
-      const outTicks = Math.max(1, Math.round(r.repair * 0.3));     // 30% of the repair time to walk there
+      const outTicks = Math.max(1, Math.round(repairLeft * 0.3));   // 30% of the repair time to walk there
       const g = human("#ff7a00");
-      const tag = label("Technician", `repairs ${r.id}`, 56);
+      const tag = label("Technician", `${lostRescue ? "restarts" : "repairs"} ${r.id}`, 56);
       tag.position.set(0, 2.05, 0);                      // (position is read-only: set it, don't replace it)
       tag.scale.multiplyScalar(0.6);
       g.add(tag);

@@ -111,6 +111,15 @@ SCENARIOS = {
         "ticks": 500,
         "config": {"restock": "robots"},
     },
+    "connection_trouble": {
+        "title": "Connection trouble",
+        "description": "Now and then a robot loses its connection and is lost. A technician walks over and "
+                       "restarts it; then it rejoins the fleet. (Needs MQTT, like the public demo.)",
+        "seed": 42,
+        "ticks": 500,
+        "config": {},
+        "lost_chance": 0.003,
+    },
     "talking_robots": {
         "title": "Talking robots (MQTT story)",
         "description": "2 robots, low batteries and breakdowns, so every kind of message happens early. "

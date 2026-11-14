@@ -1,0 +1,37 @@
+# Run every test on every push and pull request, so a broken change is seen at once.
+# No secrets are used: the AI supervisor is tested with a scripted model (no API key),
+# and the tests that need a real MQTT broker skip themselves when none is running.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Test
+        run: python -m pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the public demo image
+        run: docker build -t fleetmind-demo .
+      - name: Start it and check it answers, without tools
+        run: |
+          docker run -d --name demo -p 8000:8000 fleetmind-demo
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8000/health && break; sleep 2; done
+          curl -fs http://127.0.0.1:8000/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8000/mcp)" = "404"
