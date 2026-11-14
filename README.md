@@ -99,7 +99,7 @@ If I make a mistake in the file, it tells me clearly what is wrong. It checks th
 - robots start on a free cell they can drive on, and no two robots start in the same place
 
 ### 5. Wrote tests
-I have **203 tests** in the `tests/` folder. They check the rules, for example:
+I have **249 tests** in the `tests/` folder. They check the rules, for example:
 
 - a robot cannot drive into a wall, a shelf, a blocked cell or another robot
 - moving uses battery, and a robot with no battery cannot move
@@ -114,6 +114,9 @@ I have **203 tests** in the `tests/` folder. They check the rules, for example:
 - robots book their cells, never crash, and get out of deadlocks
 - idle robots top up their battery, and a robot on a charger can still take an order
 - the live server starts, pauses, steps and resets, and sends the right messages
+- the demand has daily peaks and busy weekdays, and the same seed gives the same days
+- the forecast never sees the day it predicts, and LightGBM beats the baseline
+- the real M5 data is added up correctly, and calendar features are known in advance
 
 ### 6. Charging, breakdowns and repairs
 - A robot can **charge** when it stands on a charger. It gets 5% per tick and stops at 100%.
@@ -146,7 +149,7 @@ Now every robot uses **A\*** (A-star). It plans the whole route from start to en
 ### 9. I can see everything in my browser
 I built two viewers that open in the browser:
 
-- **Replay viewer** (`viewer/index.html`): plays back a whole day in the warehouse. I can pause, jump to any tick, follow one robot, and see its planned route, battery and what it carries. There are 12 scenarios, like rush hour, breakdown day, blocked aisles, low battery, single robot and a 20-robot stress test, plus "old version" scenarios to compare with earlier versions.
+- **Replay viewer** (`viewer/index.html`): plays back a whole day in the warehouse. I can pause, jump to any tick, follow one robot, and see its planned route, battery and what it carries. There are 13 scenarios, like a realistic Friday, rush hour, breakdown day, blocked aisles, low battery, single robot and a 20-robot stress test, plus "old version" scenarios to compare with earlier versions.
 - **Test viewer** (`viewer/tests.html`): shows every test step by step on a small map, next to the test code.
 
 ### 10. Smarter assignment and charging
@@ -169,6 +172,8 @@ With A*, every robot planned its route alone, as if it were the only robot. Robo
 - **Deadlocks:** if robots wait on each other in a circle (R1 waits for R2, R2 for R3, R3 for R1), the least important robot gives way and everyone plans again. A robot that is only waiting (idle or going home) moves aside for a working robot.
 - **Waiting zones:** only 2 robots may drive up to one packing station at a time. The others wait in open cells nearby, so they don't block the aisles.
 - **Battery rescue:** if a robot's battery is empty away from a charger, staff swap the battery after 30 ticks.
+- **Robots that can't move:** a broken robot books its cell until it is repaired (a robot with an empty battery until the battery swap). Before, it booked its cell for only 2 ticks, so the robots behind it planned through it and waited in a line until the repair was done. Now they drive around it. Over 10 seeds of "Breakdown day", the time robots spent stuck behind broken robots fell from 298 to 90 ticks, and 10 more orders were delivered per run.
+- **A planned wait is checked every tick:** a robot that plans to wait for another robot now checks every tick whether the way got free earlier. Before, a robot kept waiting until its old plan ran out, even when the cell had emptied long ago. The wait report (`python -m scripts.waits`) showed that most long waits were exactly this, in front of the packing stations. Over 10 seeds of "Realistic Friday", long waits (8+ ticks) fell from 78.5 to 16.8 robot-ticks, the average delivery time from 73.3 to 60.4 ticks, and late orders from 25.5 to 11.3 per day (on time: 84% → 93%).
 
 Plain A* compared with A* with bookings, over 10 seeds (500 ticks each):
 
@@ -193,6 +198,7 @@ The replay viewer only plays a run that was recorded before. Now the simulation 
 - **Same seed, same run:** the server only calls `sim.step()`, so a live run is exactly the same as a recorded one. A test checks this over the WebSocket.
 - The website did not change the simulation: the server only drives it from outside. The drawing code is now shared in `viewer/draw.js`, so the live page and the replay viewer look the same.
 - The logic (`web/session.py`) is kept apart from the web code (`web/server.py`), so most of it can be tested without a server or a browser.
+- **A real working day:** scenarios with realistic demand show the **clock** (1 tick = 1 minute from 06:00) and the date. The day starts behind a closed **roller shutter** that rolls up when I press Start. Orders stop at 22:00, the robots finish their work until 23:00, then the simulation stops by itself, the shutter rolls down and shows the day's summary (delivered, late, not done, on time). Reset opens the day again. Other scenarios run forever. The replay viewer shows the clock too.
 
 **The messages.** Every message is JSON with a `"type"`.
 
@@ -226,15 +232,77 @@ Now (`SimConfig(charging="opportunity")`, the new default):
 - A **full** robot waits at its parking spot. If all 3 chargers are taken, the robots with the lowest battery get them first, and the others wait at their parking spot.
 - A robot on a charger **can still take an order**, if it has at least 60% battery and is not in the middle of a delivery. So topping up never keeps a robot away from work.
 
-I compared it with smart charging over 10 seeds:
+I compared it with smart charging over 10 seeds (with all later fixes and the fair on-time rate from section 15):
 
 | Scenario | Smart charging (old) | Opportunity charging |
 |---|---|---|
-| Normal day | 80.0 delivered, 53.7 ticks avg | 82.6 delivered, 52.7 ticks avg |
-| Rush hour | 88.7 delivered, 168.1 ticks avg | 90.0 delivered, 167.7 ticks avg |
-| Low battery | 72.2 ticks avg, 77.5% on time | **63.3 ticks avg, 82.2% on time** |
+| Normal day | 44.7 ticks avg, 97.4% on time, 2.3 late | 41.6 ticks avg, 96.1% on time, 3.4 late |
+| Rush hour | 167.6 ticks avg, 11.2% on time | 167.9 ticks avg, 11.2% on time |
+| Low battery | 58.9 ticks avg, 87.4% on time, 10.5 late | **53.6 ticks avg, 94.5% on time, 4.9 late** |
 
 It helps most when batteries are low. The 20-robot stress test got a little worse (more waiting in the corner where the chargers and packing stations are), but I don't think a warehouse this size would buy 20 robots, so it did not decide the default. The old behaviour is still there as the scenario "Normal day – smart charging (old)".
+
+### 14. Realistic demand and an order forecast
+Until now, orders arrived at the same rate all day. Real warehouses have busy hours, busy weekdays and surprises. To prepare the fleet for busy times, I first need demand that looks real, and then a forecast of it.
+
+**Time:** 1 tick = 1 minute. The warehouse is open 06:00–22:00, so a working day is 960 ticks.
+
+**Realistic demand** (`scripts/demand.py`):
+- **Daily peaks:** a morning peak around 10:00, quieter at lunch, a bigger evening peak around 18:00. The peaks are more than 5 robots can deliver (about 10–11 orders an hour).
+- **Weekdays:** Monday and Friday are busy, Saturday is lighter, Sunday is quiet.
+- **Busy and quiet weeks:** the level of demand moves slowly from day to day, so yesterday tells you something about today.
+- **Big deliveries:** on about 1 day in 10, 15–30 extra orders arrive within 5 minutes. Nobody can predict these.
+- **Chance:** the real number of orders in each minute is random around the expected number (a Poisson draw).
+
+The simulation uses it with `SimConfig(demand="realistic", demand_seed=7, demand_day=N)`. Without it (`demand="flat"`, the default), every old scenario runs exactly as before. The new scenario "Realistic Friday" shows one full day.
+
+**Order history** (`scripts/history.py`): 120 days (1 June – 28 September 2026), about 138 orders a day, saved as `data/orders_hourly.csv` (date, weekday, hour, orders).
+
+**The forecast** (`scripts/forecast.py`): every evening, predict the orders for each hour of the next day.
+- **Baseline (seasonal naive):** "tomorrow at 17:00 = the same weekday last week at 17:00".
+- **LightGBM:** a gradient-boosting model. It learns from lag features: the same hour yesterday, a week ago and two weeks ago, the average of the last 7 days, the average of the same weekday over 4 weeks, and yesterday's total. Every feature only uses days **before** the day it predicts, so the forecast can't cheat. A test checks this.
+- **Backtest:** train on days 0–89 and predict day 90, then train on days 0–90 and predict day 91, and so on up to day 119. Always the past predicts the future, like in real life.
+
+Results over 30 test days:
+
+| Forecast | WAPE | MASE |
+|---|---|---|
+| Baseline (same as last week) | 39.9% | 0.93 |
+| **LightGBM** | **30.7%** | **0.71** |
+| Perfect average (not possible in real life) | 28.0% | 0.65 |
+
+- **WAPE** = total error ÷ total real orders. **MASE** below 1.0 = better than "same as last week".
+- **LightGBM is 23% more accurate than the baseline.**
+- Why are all the numbers so high? One hour has only about 5–16 orders, so chance moves them a lot. Even someone who knew the **true average** demand would be off by 28%. LightGBM (30.7%) is close to that limit.
+
+**Real demand from the M5 dataset.** The demand above is made up: I chose the numbers. To test the forecast on real demand, I use M5 (Walmart sales 2011–2016, from a Kaggle competition): every product of store CA_1 in category FOODS, added up per day (`scripts/m5.py`). That is 1,941 real days.
+
+- Each day's real units are scaled so an average day has about 140 orders. The pattern stays real, only the size changes.
+- M5 only has **daily** numbers, so my daily curve still spreads each day's orders over the hours.
+- The real data looks different from what I had made up: **weekends are the busiest days** (Saturday ×1.25, Sunday ×1.29), the store is **closed on Christmas**, and sales grew from about 2,240 units a day in 2011 to about 3,000 from 2013.
+- The forecast gets calendar features, which are known in advance: holidays and events (and their type), "tomorrow is a holiday", Christmas, SNAP days (food stamps are paid out, food sales go up), and the same weekday one year ago.
+
+Backtest on the last 365 real days (24 May 2015 – 22 May 2016, retrained every 7 days):
+
+| Forecast | Hourly WAPE | MASE | **Daily WAPE** |
+|---|---|---|---|
+| Baseline (same as last week) | 36.7% | 1.00 | 10.7% |
+| **LightGBM** | **26.4%** | **0.72** | **6.2%** |
+| Perfect daily total (not possible in real life) | 24.6% | 0.67 | 0.0% |
+
+- **On real demand, LightGBM is 42% more accurate than the baseline for whole days** (10.7% → 6.2%).
+- **On the 30 holiday and event days** the difference is even bigger: 17.5% → 9.4%. That is what the calendar features are for.
+- The daily WAPE is the most honest number here: the daily totals are real, the split into hours is my own curve.
+
+### 15. A fair on-time rate
+Before, the on-time rate only looked at **delivered** orders. An order still waiting long after its deadline did not count at all, so a fleet that left its hardest orders undelivered looked better than it was.
+
+Now:
+- **on-time rate** = delivered on time ÷ (delivered + orders still waiting after their deadline)
+- **late orders** = delivered late + still waiting after their deadline. This is the main number to compare versions.
+- Orders that failed (the shelf was empty) are not counted: they are not late, they can't be done.
+
+The difference is big when the fleet can't keep up. In "Rush hour" the old rate said about 30% on time. The fair rate says 11%, because most orders are still waiting when the day ends.
 
 ---
 
@@ -294,6 +362,18 @@ All browser tabs show and control the same warehouse, like a control room screen
 **Opportunity charging is the default, even though the 20-robot test got a little worse.**
 A warehouse this size would not buy 20 robots, because robots are expensive. So the normal 5-robot days decided.
 
+**1 tick = 1 minute, open 06:00–22:00.**
+A forecast of "orders per hour" needs real clock time. With 1 minute per tick, the deadlines become realistic too: 1 hour for urgent orders.
+
+**The forecast is made the evening before, for every hour of the next day.**
+That is when a warehouse plans charging and robot positions. It also means every feature must be at least 1 day old.
+
+**I test the forecast on real data too.**
+Made-up demand contains exactly the patterns I put in, so a forecast can look better than it would in real life. The real M5 data has holidays, growth and surprises I did not design.
+
+**I compare the forecast with the perfect average.**
+Without it, a WAPE of 30% looks bad. With it, I can see that most of the error is pure chance that no forecast can remove.
+
 
 ## How to run it
 
@@ -340,6 +420,36 @@ python -m web.server
 This starts the server and opens http://127.0.0.1:8000 in your browser. Press **Start**. Stop the server with `Ctrl+C`.
 Use `--no-browser` to not open the browser, or `--port 8080` for another port.
 
+### Make the order history and test the forecast
+
+```powershell
+python -m scripts.history
+python -m scripts.forecast
+```
+
+The first command writes 120 days of made-up orders to `data/orders_hourly.csv`. The second runs the backtest, prints the results table and saves every forecast to `data/forecast_backtest.csv`.
+
+### Use the real M5 data
+
+Download M5 from Kaggle ("M5 Forecasting - Accuracy"). The M5 files are not part of this project. Then:
+
+```powershell
+python -m scripts.m5 --raw "C:\path\to\m5"
+python -m scripts.history --source m5
+python -m scripts.forecast --source m5
+```
+
+The first command reads the big sales file once and saves the daily totals of CA_1 FOODS in `data/m5_ca1_foods_daily.csv`. The files made from M5 are in `.gitignore`, so they are not uploaded to GitHub (check the Kaggle rules before sharing them).
+
+### Find out why robots wait
+
+```powershell
+python -m scripts.waits
+python -m scripts.waits --scenario breakdown_day --min-wait 5
+```
+
+Lists every time a robot stood still for 8+ ticks, with the reason (behind a broken robot, behind a parked robot, planned wait, ...), and adds up the waiting time per reason.
+
 ### Watch the scenarios in the browser (replay)
 
 ```powershell
@@ -360,12 +470,19 @@ start viewer\tests.html
 
 ```
 fleetmind/
+├── data/
+│   ├── orders_hourly.csv     # 120 days of order history
+│   └── forecast_backtest.csv # every forecast from the backtest
 ├── layouts/
 │   └── main_warehouse.json   # the warehouse map, shelves, items and robots
 ├── scripts/
 │   ├── classes.py            # Warehouse, Robot, Order, Shelf
 │   ├── layout.py             # reads the layout file and builds the warehouse
 │   ├── orders.py             # makes new orders
+│   ├── demand.py             # realistic demand: daily peaks, weekdays, big deliveries
+│   ├── history.py            # makes the order history for forecasting
+│   ├── forecast.py           # baseline and LightGBM forecasts, backtest, WAPE and MASE
+│   ├── m5.py                 # real daily demand from the M5 dataset (Walmart CA_1 FOODS)
 │   ├── movement.py           # greedy movement, A* route planning and walking distances
 │   ├── simulation.py         # the clock, queue, accidents, charging and KPIs
 │   ├── run.py                # run one simulation from the command line
@@ -373,6 +490,7 @@ fleetmind/
 │   ├── assignment.py         # smart order assignment and charging decisions
 │   ├── traffic.py            # cell bookings (reservations) and deadlock detection
 │   ├── record.py             # builds scenarios and records them for the replay viewer
+│   ├── waits.py              # wait report: every long wait and its reason
 │   └── record_tests.py       # records the tests for the test viewer
 ├── web/
 │   ├── session.py            # LiveSession: one running simulation, its commands and messages
@@ -389,6 +507,11 @@ fleetmind/
 │   ├── test_traffic.py       # bookings and deadlocks
 │   ├── test_session.py       # the live session: commands, messages, same seed = same run
 │   ├── test_server.py        # the server and WebSocket (FastAPI TestClient)
+│   ├── test_demand.py        # realistic demand
+│   ├── test_history.py       # the order history and realistic demand in the simulation
+│   ├── test_forecast.py      # features without leakage, scores, the forecast beats the baseline
+│   ├── test_waits.py         # the wait report
+│   ├── test_m5.py            # M5 data and real demand (with a tiny fake M5 folder)
 │   └── conftest.py           # records tests for the test viewer (only when asked)
 ├── viewer/
 │   ├── draw.js               # drawing code shared by the replay viewer and the live website

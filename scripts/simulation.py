@@ -26,6 +26,7 @@ from scripts.classes import (
     FLOOR, CHARGER, PACKING, DIRECTIONS,
 )
 from scripts.orders import OrderGenerator
+from scripts.demand import DemandModel
 from scripts.movement import greedy_step, nearest, astar, direction_to, distance_table
 from scripts import assignment
 from scripts.traffic import ReservationTable, cooperative_astar, find_wait_cycles
@@ -63,6 +64,11 @@ class SimConfig:
     rescue_battery: float = 50.0     # battery after the swap
     # opportunity charging
     top_up_full_below: float = 90.0  # opportunity: idle robots below this go top up when no orders wait
+    # demand
+    demand: str = "flat"             # "flat" (order_rate every tick) or "realistic" (scripts/demand.py, 1 tick = 1 minute from 06:00)
+    demand_seed: int = 7             # realistic: seed of the demand model (the same seed as the order history)
+    demand_day: int = 0              # realistic: which day of the demand model to simulate (day 0 = 1 June 2026)
+    demand_source: str = "synthetic" # realistic: "synthetic" (made-up days) or "m5" (real Walmart days, day 0 = 2011-01-29)
 
 
 class Simulation:
@@ -73,7 +79,11 @@ class Simulation:
         self.config = config or SimConfig()
         self.rng = random.Random(seed)                 # the ONE random generator
 
-        self.generator = OrderGenerator(warehouse, self.rng, self.config.order_rate)
+        self.demand = None
+        if self.config.demand == "realistic":
+            self.demand = DemandModel(seed=self.config.demand_seed, source=self.config.demand_source)
+        self.generator = OrderGenerator(warehouse, self.rng, self.config.order_rate,
+                                        demand=self.demand, day=self.config.demand_day)
         self.queue = deque()                           # waiting orders, oldest first
         self.orders = []                               # every order ever created
         self.tick = 0
@@ -192,14 +202,12 @@ class Simulation:
     # ------------------------------------------------------------------
 
     def _new_orders(self):
-        order = self.generator.maybe_create(self.tick)
-        if order is None:
-            return
-        self.orders.append(order)
-        self.queue.append(order)
-        self.log("order_created", details=(
-            f"{order.order_id} {order.item} {order.pickup}->{order.dropoff} {order.priority.name}"
-        ))
+        for order in self.generator.orders_for(self.tick):
+            self.orders.append(order)
+            self.queue.append(order)
+            self.log("order_created", details=(
+                f"{order.order_id} {order.item} {order.pickup}->{order.dropoff} {order.priority.name}"
+            ))
 
     # ------------------------------------------------------------------
     # 4. Random events
@@ -650,7 +658,19 @@ class Simulation:
             # parked/working robots hold their cell for the whole window; robots about
             # to drive somewhere only for a moment (they will plan in a second)
             hold = 2 if robot.target and robot.position != robot.target else self.config.window
+            # a robot that CAN'T move (broken, or battery empty) holds its cell until it
+            # can move again, so the others plan a way around it instead of waiting behind it
+            hold = max(hold, self._ticks_stuck(robot))
             self.table.reserve_stay(robot.robot_id, robot.position, now, now + hold)
+
+    def _ticks_stuck(self, robot):
+        """For how many more ticks this robot certainly can't move (0 = it can move)."""
+        if robot.status == RobotStatus.ERROR:
+            return robot.repair_left + 1
+        if robot.battery < Robot.BATTERY_PER_STEP and self.warehouse.cell_type(robot.position) != CHARGER:
+            since = self._empty_since.get(robot.robot_id, self.tick)
+            return max(1, self.config.rescue_after - (self.tick - since)) + 1
+        return 0
 
     def _drive_cooperative(self, robot):
         if robot.position == robot.target:
@@ -661,9 +681,20 @@ class Simulation:
             if not robot.path:
                 self._count_stuck(robot, "no route")
                 return
+        elif robot.path[0] == robot.position:
+            # The plan says "wait here". The robot it waits for may have left early,
+            # so plan again: A* finds the earliest arrival, so this is never slower.
+            old = robot.path
+            self._plan_cooperative(robot, log=False)
+            if not robot.path:
+                self._count_stuck(robot, "no route")
+                return
+            if robot.path != old:
+                self.log("route_planned", robot.robot_id,
+                         f"{robot.position} -> {robot.target}, {len(robot.path)} ticks (the way got free)")
         self.intents[robot.robot_id] = robot.path[0]
 
-    def _plan_cooperative(self, robot):
+    def _plan_cooperative(self, robot, log=True):
         rid = robot.robot_id
         now = self.tick - 1
         self.table.release(rid)
@@ -676,7 +707,8 @@ class Simulation:
         robot.path = path
         self._plan_goal[rid] = robot.target
         self.table.reserve_path(rid, robot.position, now, path)
-        self.log("route_planned", rid, f"{robot.position} -> {robot.target}, {len(path)} ticks")
+        if log:
+            self.log("route_planned", rid, f"{robot.position} -> {robot.target}, {len(path)} ticks")
 
     def _resolve_moves(self):
         """
@@ -835,6 +867,11 @@ class Simulation:
         delivered = [o for o in self.orders if o.status == OrderStatus.DELIVERED]
         times = [o.delivery_time() for o in delivered]
         on_time = [o for o in delivered if not o.is_late(self.tick)]
+        # orders that are not delivered yet but already past their deadline: they are late too
+        overdue = [o for o in self.orders
+                   if o.status in (OrderStatus.WAITING, OrderStatus.ASSIGNED, OrderStatus.PICKED_UP)
+                   and o.is_late(self.tick)]
+        counted = len(delivered) + len(overdue)
         return {
             "ticks": self.tick,
             "orders_created": len(self.orders),
@@ -844,7 +881,10 @@ class Simulation:
                                       if o.status in (OrderStatus.ASSIGNED, OrderStatus.PICKED_UP)),
             "orders_failed": sum(1 for o in self.orders if o.status == OrderStatus.FAILED),
             "avg_delivery_time": round(statistics.mean(times), 1) if times else None,
-            "on_time_rate": round(len(on_time) / len(delivered), 3) if delivered else None,
+            # on time = delivered on time / (delivered + still waiting after the deadline)
+            "on_time_rate": round(len(on_time) / counted, 3) if counted else None,
+            "late_orders": len(delivered) - len(on_time) + len(overdue),
+            "overdue_waiting": len(overdue),
             "breakdowns": self.breakdowns,
             "dropped_items": self.drops,
             "blocked_cells": self.blocks,

@@ -286,3 +286,25 @@ def test_greedy_step_goes_around_when_one_way_is_blocked():
 def test_nearest_picks_closest_and_breaks_ties_the_same_way():
     assert nearest((0, 0), [(5, 5), (1, 2), (2, 1)]) == (1, 2)
     assert nearest((0, 0), []) is None
+
+# ---------------------------------------------------------------------------
+# On-time rate: orders still waiting after their deadline count as late
+# ---------------------------------------------------------------------------
+
+def test_orders_waiting_past_their_deadline_count_as_late():
+    wh = load_layout(MAIN_LAYOUT)
+    sim = Simulation(wh, seed=1, config=SimConfig(order_rate=0, breakdown_chance=0,
+                                                  drop_chance=0, block_chance=0))
+    on_time = Order("O-1", "apples", "A1", (5, 15), Priority.NORMAL, created_at=0, deadline=50)
+    on_time.mark_delivered(40)
+    late = Order("O-2", "milk", "D1", (5, 15), Priority.NORMAL, created_at=0, deadline=50)
+    late.mark_delivered(70)
+    overdue = Order("O-3", "rice", "C1", (5, 15), Priority.NORMAL, created_at=0, deadline=50)
+    not_due = Order("O-4", "soap", "H1", (5, 15), Priority.NORMAL, created_at=0, deadline=500)
+    sim.orders = [on_time, late, overdue, not_due]
+    sim.tick = 100
+
+    k = sim.kpis()
+    assert k["overdue_waiting"] == 1                    # O-3: waiting, deadline passed
+    assert k["late_orders"] == 2                        # O-2 delivered late + O-3 overdue
+    assert k["on_time_rate"] == round(1 / 3, 3)         # 1 on time out of 2 delivered + 1 overdue
