@@ -309,6 +309,24 @@ def test_a_lost_robot_that_comes_back_rejoins_and_works_again():
     assert link.mismatches == 0
 
 
+def test_a_robot_that_sends_states_again_is_online_whatever_its_old_will_said():
+    """
+    Found in a live demo: robots were thrown off the broker and reconnected by themselves,
+    but the broker still held their will (CONNECTIONBROKEN), so they stayed 'lost' for
+    ever while they kept working. Now a fresh state counts as proof of life.
+    """
+    broker, sim, agents, link, clock = fleet("calm")
+    run(link, clock, 5)
+    connection = broker.connect("someone-else")
+    connection.publish(v.topic("R2", "connection"), v.connection(v.Header("R2"), 0, "CONNECTIONBROKEN"), retain=True)
+    run(link, clock, 1)
+    assert "R2" in sim.lost
+    agents["R2"].publish_state()                 # the robot is still there and talks
+    run(link, clock, 1)
+    assert "R2" not in sim.lost
+    assert link.link_status()["R2"]["link"] == "online"
+
+
 def test_the_manager_believes_the_robot_when_they_disagree():
     broker, sim, agents, link, clock = fleet("calm")
     run(link, clock, 5)

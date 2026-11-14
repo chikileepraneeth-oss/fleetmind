@@ -99,7 +99,7 @@ If I make a mistake in the file, it tells me clearly what is wrong. It checks th
 - robots start on a free cell they can drive on, and no two robots start in the same place
 
 ### 5. Wrote tests
-I have **320 tests** in the `tests/` folder. They check the rules, for example:
+I have **349 tests** in the `tests/` folder. They check the rules, for example:
 
 - a robot cannot drive into a wall, a shelf, a blocked cell or another robot
 - moving uses battery, and a robot with no battery cannot move
@@ -388,6 +388,34 @@ Isaac Sim (NVIDIA's robot simulator) shows the warehouse in 3D with real physics
 
 **What I can't do on my laptop:** it has Intel graphics, and Isaac Sim needs an NVIDIA RTX GPU. So the last step, running `isaac/run_isaac.py` in Isaac Sim itself, needs a cloud GPU machine (NVIDIA Brev or AWS) or a PC with an RTX card.
 
+### 19. Tools for an AI agent (MCP)
+Next, an AI agent will help run the fleet. It must not change the simulation's code or variables directly: it gets **tools**, like a person gets buttons. The tools use **MCP** (Model Context Protocol), the standard way for an AI to find tools, read what they do, and call them.
+
+The tools run inside the live website at `/mcp` (`web/mcp_server.py`), so they see and change the **same** warehouse as the browser. A change by a tool appears at once in every open tab (2D and 3D). The logic is in `scripts/fleet_tools.py`, without MCP code, so each tool is easy to test.
+
+| Tool | What it does | Changes the warehouse? |
+|---|---|---|
+| `get_fleet_status` | time, every robot, orders (waiting, late, delivered), problems (lost, paused, broken robots, blocked cells, closed aisles), the aisle names | no |
+| `get_robot` | one robot: cell, task, battery, load, its order and deadline, route, connection, last events | no |
+| `create_order` | a new customer order for an item, with a priority and a deadline | yes |
+| `pause_robot` / `resume_robot` | stop a robot where it is; an order it has not picked up goes back to the queue, an item it carries stays on it | yes, **risky** |
+| `close_aisle` / `reopen_aisle` | close an aisle (e.g. `BC` = between shelf rows B and C); says which shelves can no longer be reached | yes, **risky** |
+| `get_forecast` | expected orders per hour for a day (LightGBM), the peak hour, and the hours above the fleet's capacity | no |
+
+**Clear errors**, because an AI reads them and has to fix its own call:
+- `get_robot("R9")`: "There is no robot 'R9'. The robots are: R1, R2, R3, R4, R5."
+- `create_order("banana")`: "There is no item 'banana' in the warehouse. Did you mean: bananas?"
+- `close_aisle("XY")`: the list of all real aisles and the shelves next to them.
+- After closing time: "The working day is over and the warehouse is closed."
+
+**Risky tools are marked** (MCP `destructiveHint`), so the agent can later ask a person before it uses them.
+
+**Over MQTT**, a paused robot also gets the real VDA 5050 message `startPause` (and `stopPause` when resumed).
+
+**Tested by hand first:** `python -m scripts.mcp_try` calls every tool on the running website (also with wrong inputs) and prints exactly what an AI would get back. 28 tests call the tools through a real MCP client and then let the simulation run on: a paused robot really stays where it is and its order is delivered by another robot, nobody drives into a closed aisle, a created order gets delivered.
+
+**A bug the live test found:** the robots stayed "lost" for ever after a network problem. The broker had thrown them off (a test was using the same robot names on the same broker), they reconnected by themselves and kept working, but the broker still held their last will "CONNECTIONBROKEN". Now a robot says ONLINE again after every reconnect, and the manager treats any fresh state message as proof that a robot is alive. The broker tests also refuse to run on a broker where a fleet is already running.
+
 ---
 
 ## The rules of the warehouse
@@ -472,6 +500,9 @@ A real warehouse doesn't send customers' orders home undelivered at 23:00. The s
 
 **The robot bodies move by setting their position, not with physics yet.**
 That uses only plain USD, so the same code runs in Isaac Sim and in my tests without a GPU. A real wheeled robot (with wheels, a controller and a lidar) is the next step once Isaac Sim runs.
+
+**The AI agent only gets tools, never direct access.**
+Every change goes through the same checks as a person's: a robot that is lost can't be paused, a closed day can't get orders, a wrong name gets a helpful error. And the browser shows every change, so a person always sees what the agent did.
 
 **Tests use an in-memory broker.**
 It has the same interface as the real one, so 55 tests run in seconds without Docker. Two more tests use the real Mosquitto, and are skipped when it is not running.
@@ -566,6 +597,15 @@ python isaac/run_isaac.py --no-isaac         # robots in the 3D world, without I
 
 To run it in Isaac Sim itself (needs an NVIDIA RTX GPU), follow [isaac/README.md](isaac/README.md).
 
+### Try the AI agent's tools (MCP)
+
+```powershell
+python -m web.server                                   # the website, with the tools at /mcp
+python -m scripts.mcp_try                              # in another terminal: every tool once
+python -m scripts.mcp_try list
+python -m scripts.mcp_try call close_aisle aisle=BC "reason=a box fell"
+```
+
 ### Make the order history and test the forecast
 
 ```powershell
@@ -642,6 +682,8 @@ fleetmind/
 │   ├── robot_agent.py        # a robot that only follows messages and reports its state
 │   ├── fleet_link.py         # the manager over MQTT: orders out, states in, lost robots
 │   ├── talk.py               # the message story: what they say to each other, and why
+│   ├── fleet_tools.py        # the AI agent's tools: status, robots, orders, pause, aisles, forecast
+│   ├── mcp_try.py            # try the tools by hand from an MCP client
 │   └── record_tests.py       # records the tests for the test viewer
 ├── isaac/
 │   ├── world.py              # the warehouse as a 3D USD world for Isaac Sim
@@ -650,6 +692,7 @@ fleetmind/
 │   └── README.md             # how to run it on a GPU machine
 ├── web/
 │   ├── session.py            # LiveSession: one running simulation, its commands and messages
+│   ├── mcp_server.py         # the MCP server at /mcp (the tools for an AI agent)
 │   ├── server.py             # FastAPI server: the page, the WebSocket and the background ticker
 │   └── static/
 │       └── live.html         # the live website
@@ -672,6 +715,7 @@ fleetmind/
 │   ├── test_fleet_link.py    # robots and manager over messages, lost and found robots
 │   ├── test_mqtt_broker.py   # the same over a real Mosquitto (skipped without it)
 │   ├── test_isaac_world.py   # the 3D world and the robots in it (no GPU needed)
+│   ├── test_mcp_tools.py     # every MCP tool through a real MCP client
 │   └── conftest.py           # records tests for the test viewer (only when asked)
 ├── viewer/
 │   ├── draw.js               # drawing code shared by the replay viewer and the live website

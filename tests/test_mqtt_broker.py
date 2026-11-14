@@ -30,7 +30,26 @@ def broker_running():
         return False
 
 
-pytestmark = pytest.mark.skipif(not broker_running(), reason=f"no MQTT broker on {HOST}:{PORT} (docker compose up -d)")
+def fleet_online():
+    """Robots that talk on this broker right now (e.g. the live demo). The tests use the same ids."""
+    if not broker_running():
+        return []
+    online = set()
+    conn = MqttBroker(HOST, PORT).connect("test-probe")
+    conn.subscribe("uagv/v2/FleetMind/+/connection",
+                   lambda t, m: online.add(m["serialNumber"]) if m.get("connectionState") == "ONLINE" else None)
+    conn.subscribe("uagv/v2/FleetMind/+/state", lambda t, m: online.add(m["serialNumber"]))   # heartbeats
+    time.sleep(1.5)                                                                           # > 1 heartbeat
+    conn.close()
+    return sorted(online)
+
+
+pytestmark = [
+    pytest.mark.skipif(not broker_running(), reason=f"no MQTT broker on {HOST}:{PORT} (docker compose up -d)"),
+    # robots with the same ids would throw a running fleet off the broker: never fight a live demo
+    pytest.mark.skipif(bool(fleet_online()), reason=f"a fleet is running on {HOST}:{PORT}; "
+                                                    f"use another broker: FLEETMIND_MQTT_PORT=1884"),
+]
 
 
 def test_a_run_over_mosquitto_is_exactly_the_same_run():

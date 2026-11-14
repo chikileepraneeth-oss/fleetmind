@@ -22,7 +22,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from scripts.classes import (
-    Robot, RobotStatus, OrderStatus,
+    Order, Robot, RobotStatus, OrderStatus,
     FLOOR, CHARGER, PACKING, DIRECTIONS,
 )
 from scripts.orders import OrderGenerator
@@ -109,6 +109,8 @@ class Simulation:
         self.rescues = 0
         self.lost = set()                              # robots the manager can't reach (no heartbeat)
         self.lost_cells = {}                           # lost robot id -> the cell it blocks
+        self.paused = {}                               # robot id -> (task, target) to continue with after a pause
+        self.closed_aisles = {}                        # aisle name -> cells closed by a person or the agent
 
         # waiting zones: a queue per packing station, and open cells to wait in
         self.packing = warehouse.cells_of_type(PACKING)
@@ -173,9 +175,11 @@ class Simulation:
     # ------------------------------------------------------------------
 
     def _clear_expired_blocks(self):
+        closed = {c for cells in self.closed_aisles.values() for c in cells}
         for cell in sorted(self.blocked_until):
             if self.tick >= self.blocked_until[cell]:
-                self.warehouse.unblock_cell(cell)
+                if cell not in closed:                 # a closed aisle stays closed
+                    self.warehouse.unblock_cell(cell)
                 del self.blocked_until[cell]
                 self.log("cell_cleared", details=str(cell))
 
@@ -312,6 +316,8 @@ class Simulation:
                 self._act_charging(robot)
             elif robot.task == "to_home":
                 self._act_to_home(robot)
+            elif robot.task == "paused":
+                continue                                 # stands still until it is resumed
             elif robot.task == "wait_charger":
                 self._act_wait_charger(robot)
             else:
@@ -575,6 +581,7 @@ class Simulation:
         if robot_id in self.lost:
             return False
         self.lost.add(robot_id)
+        self.paused.pop(robot_id, None)
         order = robot.order
         if order is not None and order.status in (OrderStatus.ASSIGNED, OrderStatus.PICKED_UP):
             order.status = OrderStatus.WAITING
@@ -615,6 +622,84 @@ class Simulation:
         self.table.release(robot_id)
         self.log("robot_found", robot_id, f"at {robot.position}")
         return True
+
+    # ------------------------------------------------------------------
+    # Controls for people and the AI agent (used by scripts/fleet_tools.py)
+    # ------------------------------------------------------------------
+
+    def pause_robot(self, robot_id, reason=""):
+        """
+        Stop a robot where it is. An order it has not picked up yet goes back to the
+        front of the queue (another robot can do it); an item it carries stays on it,
+        and it delivers it after it is resumed. Its cell stays booked, so others drive around.
+        """
+        robot = self.warehouse.robots[robot_id]
+        if robot_id in self.paused or robot_id in self.lost:
+            return False
+        order = robot.order
+        if order is not None and robot.carrying is None:
+            order.status = OrderStatus.WAITING
+            self.queue.appendleft(order)
+            robot.order = None
+            self.log("order_returned", robot_id, f"{order.order_id}: the robot was paused")
+        # after the pause: finish the delivery if it carries an item, otherwise decide again (charge, park, ...)
+        task = "to_dropoff" if robot.carrying is not None and robot.order is not None else None
+        self.paused[robot_id] = (task, None)
+        self.resume.pop(robot_id, None)
+        self._leave_station_queues(robot_id)
+        self.table.release(robot_id)
+        robot.task = "paused"
+        robot.target = None
+        robot.path = []
+        self.log("robot_paused", robot_id, f"at {robot.position}" + (f": {reason}" if reason else ""))
+        return True
+
+    def resume_robot(self, robot_id):
+        if robot_id not in self.paused:
+            return False
+        robot = self.warehouse.robots[robot_id]
+        task, target = self.paused.pop(robot_id)
+        robot.task = task
+        robot.target = target                        # None: it plans again (and waits for its turn at the station)
+        robot.path = []
+        self.table.release(robot_id)
+        self.log("robot_resumed", robot_id, f"at {robot.position}")
+        return True
+
+    def close_aisle(self, name, cells, reason=""):
+        """Close floor cells (an aisle) until reopen_aisle. Robots plan around them."""
+        if name in self.closed_aisles:
+            return False
+        for cell in cells:
+            self.warehouse.block_cell(cell)
+        self.closed_aisles[name] = list(cells)
+        self.log("aisle_closed", details=f"{name}: {len(cells)} cells" + (f", {reason}" if reason else ""))
+        return True
+
+    def reopen_aisle(self, name):
+        cells = self.closed_aisles.pop(name, None)
+        if cells is None:
+            return False
+        still_closed = {c for other in self.closed_aisles.values() for c in other}
+        keep = still_closed | set(self.lost_cells.values()) | set(self.blocked_until)
+        for cell in cells:
+            if cell not in keep:
+                self.warehouse.unblock_cell(cell)
+        self.log("aisle_reopened", details=name)
+        return True
+
+    def add_order(self, item, priority, deadline_ticks, source="agent"):
+        """A new order for `item`, made on request (not by the random order generator)."""
+        shelf = self.warehouse.find_shelf_with(item)
+        order = Order(order_id=f"O-{self.generator.next_number:04d}", item=item, pickup=shelf.shelf_id,
+                      dropoff=self.packing[0], priority=priority, created_at=self.tick,
+                      deadline=self.tick + deadline_ticks)
+        self.generator.next_number += 1
+        self.orders.append(order)
+        self.queue.append(order)
+        self.log("order_created", details=(
+            f"{order.order_id} {order.item} {order.pickup}->{order.dropoff} {order.priority.name} (by {source})"))
+        return order
 
     # ------------------------------------------------------------------
     # Helpers
@@ -747,6 +832,8 @@ class Simulation:
 
     def _ticks_stuck(self, robot):
         """For how many more ticks this robot certainly can't move (0 = it can move)."""
+        if robot.robot_id in self.paused:
+            return self.config.window + 1        # paused: hold the cell, booked again every tick
         if robot.robot_id in self.lost:
             return self.config.window + 1        # unknown: hold the cell, booked again every tick
         if robot.status == RobotStatus.ERROR:
@@ -863,7 +950,8 @@ class Simulation:
             other = wh.robots[blocker]
             just_waiting = other.task in (None, "to_home", "wait_charger") and other.order is None \
                 or other.task == "wait_charger"
-            if just_waiting and not other.path and other.status != RobotStatus.ERROR:
+            if just_waiting and not other.path and other.status != RobotStatus.ERROR \
+                    and other.robot_id not in self.paused:
                 if self._back_off(other, [rid, blocker]):
                     self.log("made_way", blocker, f"moved aside for {rid}")
 

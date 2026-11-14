@@ -79,6 +79,7 @@ class FleetLink:
         self.charging = defaultdict(bool)
         self.trace = defaultdict(list)
         self.started = self.clock()
+        self.events_sent = len(sim.events)
         self._install_trace()
         for rid in sorted(sim.warehouse.robots):
             self._init_position(rid)
@@ -110,7 +111,7 @@ class FleetLink:
         self.check_heartbeats()
         robots = sim.warehouse.robots
         start = {rid: (r.position, r.battery) for rid, r in robots.items()}
-        first_event = len(sim.events)
+        first_event = self.events_sent           # also what happened between ticks (e.g. a pause by the agent)
         self.trace.clear()
 
         sim.step()
@@ -125,6 +126,7 @@ class FleetLink:
                 self._send_tick(rid, tick, *start[rid], events[rid])
 
         self.conn.publish(v.CLOCK_TOPIC, {"tick": tick, "timestamp": v.timestamp(tick)})
+        self.events_sent = len(sim.events)
         alive = [rid for rid in robots if rid not in sim.lost]
         self._wait_until(lambda: all(self.state_tick.get(rid, -1) >= tick for rid in alive), self.state_timeout)
         self._reconcile(tick)
@@ -148,6 +150,10 @@ class FleetLink:
                 instant.append(self._action(rid, "simBreakdown", {"repairTicks": cfg.repair_ticks}))
             elif event == "dropped_item":
                 instant.append(self._action(rid, "simDropLoad"))
+            elif event == "robot_paused":
+                instant.append(self._action(rid, "startPause"))
+            elif event == "robot_resumed":
+                instant.append(self._action(rid, "stopPause"))
         moves = list(self.trace.get(rid, []))
         for _ in moves:
             battery -= Robot.BATTERY_PER_STEP
@@ -248,6 +254,10 @@ class FleetLink:
             self.states[rid] = msg
             self.state_tick[rid] = v.tick_of(msg["timestamp"])
             self.last_seen[rid] = self.clock()
+            if self.connection.get(rid) in ("OFFLINE", "CONNECTIONBROKEN"):
+                # states aren't retained: a robot that sends one NOW is online, whatever an
+                # older connection message said (e.g. it reconnected after a network blip)
+                self.connection[rid] = "ONLINE"
             self.cond.notify_all()
 
     def _on_connection(self, topic, msg):

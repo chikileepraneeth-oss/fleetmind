@@ -94,6 +94,8 @@ class RobotAgent:
         will = (v.topic(self.serial, "connection"),
                 v.connection(self.header, self.tick, "CONNECTIONBROKEN"), True)
         self.conn = self.broker.connect(self.serial, will=will)
+        # after a broken connection the broker sent our will (CONNECTIONBROKEN): say ONLINE again
+        self.conn.on_reconnect = self._announce
         self.conn.subscribe(v.topic(self.serial, "order"), lambda t, m: self.dispatch(self._receive, "order", m))
         self.conn.subscribe(v.topic(self.serial, "instantActions"),
                             lambda t, m: self.dispatch(self._receive, "instantActions", m))
@@ -104,6 +106,11 @@ class RobotAgent:
         if heartbeat:
             threading.Thread(target=self._heartbeat, daemon=True, name=f"{self.serial}-heartbeat").start()
         return self
+
+    def _announce(self):
+        self.conn.publish(v.topic(self.serial, "connection"),
+                          v.connection(self.header, self.tick, "ONLINE"), retain=True)
+        self.publish_state()
 
     def stop(self):
         """A clean shutdown: say OFFLINE, then disconnect."""

@@ -36,6 +36,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from web.mcp_server import build_mcp
 from web.session import LiveSession
 
 ROOT = Path(__file__).resolve().parent.parent       # the fleetmind folder
@@ -111,14 +112,21 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
     hub = Hub(LiveSession(str(layout_path), scenario=scenario, broker=bus, robots=robots, broker_name=name,
                           link_options={"state_timeout": state_timeout}))
 
+    # the fleet's tools for AI agents (MCP), at /mcp, on the same live warehouse
+    mcp = build_mcp(hub)
+    mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp")
+
     @asynccontextmanager
     async def lifespan(app):
         task = asyncio.create_task(hub.ticker())   # start the ticker when the server starts
-        yield
+        async with mcp.session_manager.run():      # and the MCP server's sessions
+            yield
         task.cancel()                              # stop it when the server stops
         hub.session.close()
 
     app = FastAPI(title="FleetMind live", lifespan=lifespan)
+    app.state.mcp = mcp
+    app.router.routes.extend(mcp_app.routes)       # POST/GET /mcp
     app.state.hub = hub
 
     @app.get("/")

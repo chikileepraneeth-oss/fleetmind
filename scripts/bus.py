@@ -149,6 +149,7 @@ class MqttConnection:
         self._acks = {}
         self._connected = threading.Event()
         self.open = False
+        self.on_reconnect = None          # called after the connection came back (paho reconnects by itself)
 
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
         if will:
@@ -174,9 +175,12 @@ class MqttConnection:
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         if not reason_code.is_failure:
+            reconnect = self._connected.is_set()
             for pattern, _ in self.subscriptions:          # after a reconnect: subscribe again
                 client.subscribe(pattern, qos=1)
             self._connected.set()
+            if reconnect and self.on_reconnect:
+                self.on_reconnect()                        # e.g. a robot says ONLINE again
 
     def _on_subscribe(self, client, userdata, mid, reason_codes, properties):
         event = self._acks.get(mid)
