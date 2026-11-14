@@ -64,6 +64,26 @@
 
   #map { display: block; width: 100%; height: auto; cursor: pointer; }
 
+  /* Roller shutter over the map: down = warehouse closed, rolls up when the day starts */
+  .stage { position: relative; overflow: hidden; border-radius: 6px; }
+  .shutter {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: repeating-linear-gradient(#6b7383 0 14px, #555d6c 14px 17px);
+    transform: translateY(0); transition: transform 1.6s cubic-bezier(.6, 0, .3, 1);
+  }
+  .shutter.up { transform: translateY(-101%); }
+  .shutter[hidden] { display: none; }
+  .sign {
+    background: var(--panel); border-radius: 12px; padding: 18px 26px; text-align: center;
+    box-shadow: 0 6px 24px rgba(0,0,0,.25); min-width: 260px;
+  }
+  .sign b { display: block; font-size: 22px; margin-bottom: 4px; }
+  .sign .when { color: var(--muted); }
+  .sign .facts { display: flex; gap: 18px; justify-content: center; margin-top: 12px; }
+  .sign .facts div b { font-size: 20px; margin: 0; }
+  .sign .facts div span { color: var(--muted); font-size: 12px; }
+  .clock { font-variant-numeric: tabular-nums; }
+
   .controls { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   button {
     font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 8px;
@@ -121,7 +141,7 @@
 </header>
 
 <section class="kpibar">
-  <div class="kpi"><b id="k-tick">0</b><span>tick</span></div>
+  <div class="kpi"><b id="k-tick" class="clock">0</b><span id="k-tick-label">tick</span></div>
   <div class="kpi"><b id="k-throughput">0</b><span>delivered / 100 ticks</span></div>
   <div class="kpi"><b id="k-delivered">0</b><span>delivered</span></div>
   <div class="kpi"><b id="k-avg">–</b><span>avg delivery (ticks)</span></div>
@@ -141,7 +161,16 @@
 <main>
   <section>
     <div class="card">
-      <canvas id="map"></canvas>
+      <div class="stage">
+        <canvas id="map"></canvas>
+        <div class="shutter" id="shutter" hidden>
+          <div class="sign">
+            <b id="sign-title">Closed</b>
+            <div class="when" id="sign-when"></div>
+            <div class="facts" id="sign-facts"></div>
+          </div>
+        </div>
+      </div>
 
       <div class="controls">
         <button id="play" class="primary" title="Start / pause (space)">▶ Start</button>
@@ -228,7 +257,10 @@
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(command));
   }
 
+  let day = null;             // realistic day: {date, open, close, end, end_tick}, else null
+
   function onHello(msg) {
+    day = msg.day;
     layout = msg.layout;
     prev = cur = null;
     trails = {};
@@ -269,7 +301,7 @@
   // Drawing (the map itself is drawn by draw.js)
   // ------------------------------------------------------------------
   function resize() {
-    if (layout) map.resize(layout, canvas.parentElement.clientWidth - 28);
+    if (layout) map.resize(layout, canvas.parentElement.clientWidth);   // .stage has no padding
   }
 
   function draw(now) {
@@ -303,14 +335,18 @@
   // ------------------------------------------------------------------
   function renderControls() {
     $("play").textContent = cur.running ? "❚❚ Pause" : "▶ Start";
-    $("tick-label").textContent = `Tick ${cur.tick}`;
+    $("tick-label").textContent = cur.clock ? `${cur.clock}  (tick ${cur.tick})` : `Tick ${cur.tick}`;
+    $("play").disabled = !!cur.finished;
+    $("step").disabled = !!cur.finished;
+    renderShutter();
     if (document.activeElement !== $("speed")) $("speed").value = cur.speed;   // another tab may have changed it
     $("speed-out").textContent = `${cur.speed} t/s`;
   }
 
   function renderKpis() {
     const k = cur.kpis;
-    $("k-tick").textContent = cur.tick;
+    $("k-tick").textContent = cur.clock || cur.tick;
+    $("k-tick-label").textContent = cur.clock ? (day ? day.date : "time") : "tick";
     $("k-throughput").textContent = k.throughput.toFixed(1);
     $("k-delivered").textContent = k.orders_delivered;
     $("k-avg").textContent = k.avg_delivery_time ?? "–";
@@ -369,6 +405,31 @@
   // ------------------------------------------------------------------
   // Small helpers
   // ------------------------------------------------------------------
+  // Roller shutter: closed before the day starts and after it ends, rolled up while open
+  function renderShutter() {
+    const shutter = $("shutter");
+    if (!day) { shutter.hidden = true; return; }
+    shutter.hidden = false;
+    const k = cur.kpis;
+    if (cur.finished) {
+      $("sign-title").textContent = "Closed for the day";
+      $("sign-when").textContent = `${day.date} · orders stopped at ${day.close}, robots finished at ${day.end}`;
+      $("sign-facts").innerHTML = [
+        [k.orders_delivered, "delivered"], [k.late_orders, "late"],
+        [k.orders_waiting + k.orders_in_progress, "not done"],
+        [k.on_time_rate == null ? "–" : `${(k.on_time_rate * 100).toFixed(0)}%`, "on time"],
+      ].map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join("");
+      shutter.classList.remove("up");
+    } else if (cur.tick === 0 && !cur.running) {
+      $("sign-title").textContent = "Closed";
+      $("sign-when").textContent = `${day.date} · opens at ${day.open} · press Start`;
+      $("sign-facts").innerHTML = "";
+      shutter.classList.remove("up");
+    } else {
+      shutter.classList.add("up");             // open: the shutter rolls up
+    }
+  }
+
   function esc(text) {
     return String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   }

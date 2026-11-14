@@ -88,6 +88,13 @@ SCENARIOS = {
         "ticks": 500,
         "config": {"charging": "smart"},
     },
+    "realistic_friday": {
+        "title": "Realistic Friday (06:00-22:00)",
+        "description": "Real-looking demand: 1 tick = 1 minute, a morning and a bigger evening peak. Friday 2 October 2026, the day after the order history ends.",
+        "seed": 42,
+        "ticks": 1020,
+        "config": {"demand": "realistic", "demand_seed": 7, "demand_day": 123},
+    },
     "stress_20": {
         "title": "Stress test - 20 robots",
         "description": "20 robots and an order every 2 ticks. Watch the waiting zones, bookings and deadlock handling.",

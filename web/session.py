@@ -24,6 +24,7 @@ Messages (all are dicts with a "type" field):
         {"type": "scenario", "key": "rush_hour"}
 """
 
+from scripts.demand import clock, OPEN_HOUR, CLOSE_HOUR
 from scripts.record import build_simulation, layout_data, snapshot
 from scripts.scenarios import SCENARIOS
 
@@ -57,20 +58,36 @@ class LiveSession:
         self.sim = build_simulation(key, self.layout_path)
         self.running = False
         self._events_sent = 0     # how many of sim.events the browsers have already received
+        # A realistic day (1 tick = 1 minute from 06:00) has an end: the scenario's last tick
+        # (orders stop at 22:00, the robots finish until then). Other scenarios run forever.
+        spec = SCENARIOS[key]
+        self.day_end = spec["ticks"] if spec["config"].get("demand") == "realistic" else None
+
+    @property
+    def finished(self):
+        """True when a realistic day is over (the warehouse is closed)."""
+        return self.day_end is not None and self.sim.tick >= self.day_end
 
     def reset(self):
         """Back to tick 0 of the same scenario. Same seed, so the same run again."""
         self.load_scenario(self.scenario)
 
     def start(self):
+        if self.finished:
+            raise ValueError("The day is over. Press Reset to start it again.")
         self.running = True
 
     def pause(self):
         self.running = False
 
     def step(self):
-        """Advance the simulation by exactly one tick."""
+        """Advance the simulation by exactly one tick (and stop when the day is over)."""
+        if self.finished:
+            self.running = False
+            return
         self.sim.step()
+        if self.finished:
+            self.running = False                  # closing time: stop by itself
 
     def set_speed(self, value):
         """Ticks per second. Kept between MIN_SPEED and MAX_SPEED."""
@@ -97,6 +114,8 @@ class LiveSession:
             self.pause()
             return [self.state_message()]
         if kind == "step":
+            if self.finished:
+                raise ValueError("The day is over. Press Reset to start it again.")
             self.pause()                      # stepping by hand only makes sense while paused
             self.step()
             return [self.state_message()]
@@ -127,6 +146,20 @@ class LiveSession:
             "layout": layout_data(self.sim.warehouse),
             # the latest events, so a tab opened in the middle of a run isn't empty
             "events": [list(e) for e in self.sim.events[-RECENT_EVENTS:]],
+            "day": self.day_info(),
+        }
+
+    def day_info(self):
+        """For a realistic day: the date and opening hours (None for scenarios that run forever)."""
+        if self.day_end is None:
+            return None
+        demand, cfg = self.sim.demand, self.sim.config
+        return {
+            "date": demand.date(cfg.demand_day).strftime("%A %d %B %Y"),   # e.g. Friday 02 October 2026
+            "open": f"{OPEN_HOUR:02d}:00",
+            "close": f"{CLOSE_HOUR:02d}:00",                                 # no new orders after this
+            "end": clock(self.day_end),                                      # the robots finish until this
+            "end_tick": self.day_end,
         }
 
     def state_message(self, new_events=True):
@@ -153,6 +186,8 @@ class LiveSession:
             "blocked": frame["blocked"],
             "queue": frame["queue"],
             "events": [list(e) for e in events],
+            "clock": clock(frame["tick"]) if self.day_end is not None else None,   # 1 tick = 1 minute from 06:00
+            "finished": self.finished,
             "kpis": self.kpis(frame["robots"]),
         }
 

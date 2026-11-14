@@ -202,3 +202,83 @@ def test_cooperative_beats_plain_astar_in_the_stress_test():
     plain = stress_run(seed=2, movement="astar", ticks=1000).kpis()
     assert smart["orders_delivered"] > plain["orders_delivered"]
     assert smart["stuck_steps"] < plain["stuck_steps"]
+
+# ---------------------------------------------------------------------------
+# A broken robot books its cell until it is repaired
+# ---------------------------------------------------------------------------
+
+CALM = dict(order_rate=0, breakdown_chance=0, drop_chance=0, block_chance=0)
+
+
+def broken_in_front():
+    """
+    Row 3 is the aisle between shelf rows A and B. R1 drives right along it,
+    R2 stands right in front of it and breaks down (repair takes 30 ticks):
+        row 3:   .  R1 [R2]  .  .  .  .  .  (R1's goal at column 9)
+    """
+    wh = load_layout(MAIN_LAYOUT)
+    for robot_id in list(wh.robots):
+        wh.occupied.pop(wh.robots[robot_id].position)
+        if robot_id not in ("R1", "R2"):
+            del wh.robots[robot_id]
+    for robot_id, position in (("R1", (3, 3)), ("R2", (3, 4))):
+        wh.robots[robot_id].position = position
+        wh.occupied[position] = robot_id
+    sim = Simulation(wh, seed=1, config=SimConfig(**CALM))
+    r1, r2 = wh.robots["R1"], wh.robots["R2"]
+    sim.home["R1"] = (3, 9)
+    r1.task, r1.target = "to_home", (3, 9)
+    r2.task, r2.target = "to_home", (3, 12)        # it was driving somewhere when it broke
+    r2.break_down(30)
+    return sim, r1, r2
+
+
+def test_broken_robot_books_its_cell_until_it_is_repaired():
+    sim, r1, r2 = broken_in_front()
+    sim.step()
+    for tick in range(sim.tick, sim.tick + 20):
+        assert sim.table.is_free(r2.position, tick, "R1") is False
+
+
+def test_robot_behind_a_broken_robot_drives_around_it():
+    sim, r1, r2 = broken_in_front()
+    for _ in range(25):                             # the repair takes 30 ticks
+        sim.step()
+        if r1.position == (3, 9):
+            break
+    assert r1.position == (3, 9)                    # it went around instead of waiting
+    assert r2.status.value == "error"               # and R2 really was still broken
+
+
+# ---------------------------------------------------------------------------
+# A planned wait is checked again every tick
+# ---------------------------------------------------------------------------
+
+def test_waiting_robot_goes_as_soon_as_the_cell_is_free():
+    """
+    R2 has just delivered at packing station P2 (6, 15), so for a moment it books the
+    station like a parked robot. R1 arrives next to it with an item and plans to wait.
+    Then R2 drives away. R1 must not keep waiting for its old plan to run out.
+    """
+    from scripts.classes import Order, Priority, RobotStatus
+    wh = load_layout(MAIN_LAYOUT)
+    for robot_id in list(wh.robots):
+        wh.occupied.pop(wh.robots[robot_id].position)
+        if robot_id not in ("R1", "R2"):
+            del wh.robots[robot_id]
+    for robot_id, position in (("R1", (6, 14)), ("R2", (6, 15))):
+        wh.robots[robot_id].position = position
+        wh.occupied[position] = robot_id
+    sim = Simulation(wh, seed=1, config=SimConfig(**CALM))
+    sim.home["R2"] = (10, 6)                       # R2 parks far away
+
+    r1 = wh.robots["R1"]
+    order = Order("O-1", "apples", "A1", (6, 15), Priority.NORMAL, 0, 100)
+    order.status = order.status.__class__.PICKED_UP
+    r1.order, r1.carrying, r1.status, r1.task = order, "apples", RobotStatus.CARRYING, "to_dropoff"
+
+    for _ in range(5):
+        sim.step()
+        if order.delivered_at is not None:
+            break
+    assert order.delivered_at is not None and order.delivered_at <= 4

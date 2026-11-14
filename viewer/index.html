@@ -56,7 +56,7 @@
   }
   button:hover { border-color: #b9c0ca; }
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); min-width: 84px; }
-  .tick-label { font-variant-numeric: tabular-nums; min-width: 120px; font-weight: 600; }
+  .tick-label { font-variant-numeric: tabular-nums; min-width: 170px; font-weight: 600; }
   .speed { display: flex; align-items: center; gap: 6px; margin-left: auto; color: var(--muted); }
   .speed output { min-width: 56px; font-variant-numeric: tabular-nums; color: var(--ink); }
   label.toggle { display: flex; align-items: center; gap: 4px; color: var(--muted); }
@@ -382,7 +382,10 @@
     drawTrails(tick);
     drawRobots(tick, frac);
 
-    $("tick-label").textContent = `Tick ${tick} / ${rec.ticks}`;
+    // realistic days: 1 tick = 1 minute from 06:00, so show the clock too
+    const clock = rec.config.demand === "realistic"
+      ? `${String(6 + Math.floor(tick / 60)).padStart(2, "0")}:${String(tick % 60).padStart(2, "0")} · ` : "";
+    $("tick-label").textContent = `${clock}Tick ${tick} / ${rec.ticks}`;
     $("timeline").value = tick;
     if (tick !== lastPanelTick) {
       renderPanel(tick);

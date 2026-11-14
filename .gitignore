@@ -5,3 +5,6 @@ __pycache__/
 .hypothesis/
 .env
 logs/
+# made from the M5 dataset (Kaggle competition rules): rebuild with python -m scripts.m5 --raw ...
+data/m5_*.csv
+data/*_m5.csv

@@ -14,16 +14,38 @@ DEADLINE_TICKS = {Priority.HIGH: 60, Priority.NORMAL: 100, Priority.LOW: 200}
 
 
 class OrderGenerator:
-    """Each tick, maybe creates one new order for an item that is in stock."""
+    """
+    Makes new orders for items that are in stock.
 
-    def __init__(self, warehouse, rng, order_rate=0.2):
+    Two ways to decide WHEN orders arrive:
+      - flat (no demand model): each tick, one order with chance order_rate
+      - realistic (a DemandModel from scripts/demand.py): the number of orders in
+        each minute of one working day comes from the demand model (tick 1 = 06:00)
+    WHAT is ordered (item, packing station, priority) always comes from rng.
+    """
+
+    def __init__(self, warehouse, rng, order_rate=0.2, demand=None, day=0):
         self.warehouse = warehouse
         self.rng = rng
         self.order_rate = order_rate          # chance of a new order each tick (0.2 = about 1 every 5 ticks)
+        self.demand = demand                  # None = flat demand
+        self.day = day                        # which day of the demand model is simulated
         self.next_number = 1
         self.packing_stations = warehouse.cells_of_type(PACKING)
         if not self.packing_stations:
             raise ValueError("The warehouse has no packing station, so orders have nowhere to go.")
+
+    def orders_for(self, tick):
+        """All new orders that arrive in this tick (often none, sometimes several)."""
+        if self.demand is None:
+            order = self.maybe_create(tick)
+            return [order] if order else []
+        arrivals = self.demand.arrivals(self.day)
+        minute = tick - 1                     # tick 1 is the first minute of the day (06:00)
+        if not 0 <= minute < len(arrivals):
+            return []                         # the warehouse is closed: no new orders
+        orders = [self.create(tick) for _ in range(arrivals[minute])]
+        return [o for o in orders if o]
 
     def maybe_create(self, tick):
         """Return a new Order, or None if no order arrives this tick."""

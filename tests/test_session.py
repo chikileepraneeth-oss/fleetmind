@@ -122,3 +122,43 @@ def test_same_seed_gives_same_run_as_plain_simulation():
     direct.run(200)
     assert s.sim.events == direct.events
     assert s.sim.kpis() == direct.kpis()
+
+
+# ---------------------------------------------------------------------------
+# A realistic day has a clock, an opening and a closing time
+# ---------------------------------------------------------------------------
+
+def test_realistic_day_has_a_clock_and_a_date():
+    s = LiveSession(LAYOUT, scenario="realistic_friday")
+    hello = s.hello_message()
+    assert hello["day"]["date"] == "Friday 02 October 2026"
+    assert hello["day"]["open"] == "06:00" and hello["day"]["end"] == "23:00"
+    assert s.state_message()["clock"] == "06:00"
+    for _ in range(90):
+        s.step()
+    assert s.state_message()["clock"] == "07:30"
+
+
+def test_realistic_day_stops_by_itself_at_closing_time():
+    s = LiveSession(LAYOUT, scenario="realistic_friday")
+    s.start()
+    for _ in range(s.day_end + 50):              # try to run past the end
+        s.step()
+    msg = s.state_message()
+    assert s.sim.tick == 1020 and msg["clock"] == "23:00"
+    assert msg["finished"] is True and msg["running"] is False
+    with pytest.raises(ValueError, match="Reset"):
+        s.handle({"type": "start"})
+    with pytest.raises(ValueError, match="Reset"):
+        s.handle({"type": "step"})
+    s.handle({"type": "reset"})                  # reset opens the day again
+    assert s.sim.tick == 0 and s.state_message()["finished"] is False
+
+
+def test_other_scenarios_run_forever_without_a_clock():
+    s = LiveSession(LAYOUT, scenario="normal")
+    assert s.hello_message()["day"] is None
+    for _ in range(600):                         # longer than the scenario's 500 ticks
+        s.step()
+    msg = s.state_message()
+    assert msg["clock"] is None and msg["finished"] is False and s.sim.tick == 600
