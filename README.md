@@ -49,7 +49,9 @@ This connects to my Master's thesis, which was about giving resources to tasks w
 - **Tools for an AI agent:** an MCP server with 8 tools on the live warehouse, with clear errors and risky tools marked.
 - **Restocking:** people the robots must find and tell each other about, or restocking robots that book their way.
 - **A public demo mode and a container:** one shared warehouse anyone can open, without any tools, AI or keys.
-- **374 tests**, and every result compared over many seeds.
+- **An AI supervisor (Claude):** handles incidents with the MCP tools (plan, act, check) and asks a person before risky actions.
+- **Lost robots are rescued** by a technician, and **tests run on every push** (GitHub Actions).
+- **387 tests**, and every result compared over many seeds.
 
 **Some results:**
 
@@ -61,7 +63,7 @@ This connects to my Master's thesis, which was about giving resources to tasks w
 | A robot dies (killed 90 times at different moments) | the fleet always recovered; before the fixes it got stuck in about half the cases |
 | Restocking (30 seeds) | costs about 10 minutes per delivery; people, badges or robots: the difference is within the noise |
 
-**What's next:** an AI agent (Claude) that plans, calls the MCP tools, checks the result and asks a person before risky actions. See [What's next](#whats-next).
+**What's next:** put the demo online, try the supervisor on many incidents (an evaluation), cameras and a damaged-box detector. See [What's next](#whats-next).
 
 ---
 
@@ -143,7 +145,7 @@ If I make a mistake in the file, it tells me clearly what is wrong. It checks th
 - robots start on a free cell they can drive on, and no two robots start in the same place
 
 ### 5. Wrote tests
-I have **374 tests** in the `tests/` folder. They check the rules, for example:
+I have **387 tests** in the `tests/` folder. They check the rules, for example:
 
 - a robot cannot drive into a wall, a shelf, a blocked cell or another robot
 - moving uses battery, and a robot with no battery cannot move
@@ -170,6 +172,8 @@ I have **374 tests** in the `tests/` folder. They check the rules, for example:
 - a new random day is different, and Reset repeats it
 - robots can't drive into a person, a sighting reroutes the other robots, an old spot is cleared
 - the public demo has no tools (404), limits clicks and speed, and runs by itself
+- a lost robot is restarted by a technician and works again
+- the AI supervisor plans before it acts, never runs a rejected action, and stops at its limits
 
 ### 6. Charging, breakdowns and repairs
 - A robot can **charge** when it stands on a charger. It gets 5% per tick and stops at 100%.
@@ -517,6 +521,28 @@ The goal: anyone opens a link and sees the warehouse working, in 2D and 3D. But 
 
 The robots in the demo still talk VDA 5050 messages, over the in-memory bus, because most free hosts allow only one container (no separate broker).
 
+### 23. Lost robots are rescued
+Before, a lost robot stayed lost until someone restarted its program by hand. Now a **technician walks to where it was last seen and restarts it** (25 minutes: walking and restarting), and the robot rejoins the fleet. The 3D view shows the technician ("restarts R3").
+- New scenario **Connection trouble**: now and then a robot's connection drops. Over a day, 8 robots were lost, 8 were restarted and 8 came back, with 0 collisions.
+- A robot program that runs in someone's own terminal can't be restarted from here: the technician reports it ("restart its robot program by hand").
+
+### 24. The AI supervisor
+An AI agent (Claude) that handles incidents with the fleet's MCP tools, and asks a person before anything risky.
+
+- **What starts it:** a request typed in the chat on the website ("Prepare for a big delivery at 2 pm"), or an **incident** the fleet finds by itself: a robot lost, two or more robots broken at the same time, or 5 or more orders waiting past their deadline. The same incident doesn't start it again for 120 minutes.
+- **How it works** (`scripts/agent.py`):
+  1. **Plan:** it looks at the fleet with the read-only tools and writes a short plan. In this step it can't change anything.
+  2. **Act:** it carries out the plan with the tools. A **risky tool** (pause a robot, close an aisle) is only run after a person clicks **Approve** on the website. If the person clicks **Reject**, the agent is told why and must find another way.
+  3. **Check:** a separate reviewer looks at the fleet afterwards: is the problem solved? If not, the agent tries again (at most 2 more rounds).
+- **Limits:** at most 12 tool calls per task, it stops after 3 failed tool calls, and the cost of every task is counted and shown.
+- **On the website** (`web/agent_desk.py`): an "AI supervisor" card shows every step (task, plan, tool calls, check, cost), a box to type requests, and the Approve / Reject buttons with the agent's reason.
+- **The model:** Claude (`claude-opus-5-5`) through the official Anthropic SDK, with server-side fallbacks (if the model declines a request, another one continues). Tests use a **scripted model** instead: fixed answers, no API key, no cost. They check the agent's rules: it plans before it acts, a rejected action never runs, the planning step can't change anything, the limits stop it, a failed check makes it try again, and an incident starts it.
+- **Never in the public demo:** there is no agent and no `/mcp` in `--public`, so nobody else can use my API key.
+
+### 25. Tests on every push, and the demo ready to go online
+- **GitHub Actions** (`.github/workflows/tests.yml`) runs every test on every push, builds the public demo container and checks that it starts without tools. No secrets are needed.
+- **Hugging Face Spaces:** `python -m scripts.make_space` writes `dist/hf-space/`, everything a free Docker Space needs (checked: it builds and runs). The steps are below in "Put the public demo online".
+
 ### How much can I trust this simulator?
 Real robots fail in many more ways than my simulation has, so I don't use it to predict exact numbers. I use it to compare ideas and to test software.
 
@@ -738,6 +764,38 @@ docker run --rm -p 8000:8000 fleetmind-demo           # then open http://127.0.0
 
 To put it online, any host that runs a Docker image works, e.g. Hugging Face Spaces (Docker), Google Cloud Run or Fly.io. The host sets `PORT`; the container reads it. Set a budget alert first.
 
+### Run the AI supervisor (needs an Anthropic API key)
+
+1. Get a key at console.anthropic.com (API keys). Set a monthly spending limit there first.
+2. Put it in a file called `.env` in the fleetmind folder (git and Docker ignore this file):
+   ```
+   ANTHROPIC_API_KEY=sk-ant-...
+   ```
+3. Start the website with the supervisor:
+   ```powershell
+   python -m web.server --mqtt memory --agent --scenario connection_trouble
+   ```
+4. Press Start. When a robot is lost, the supervisor starts by itself; or type a request in the "AI supervisor" card. Approve or reject what it asks.
+
+### Put the public demo online (Hugging Face Spaces, free)
+
+1. Make an account at huggingface.co.
+2. Create a new Space: **Docker**, template **Blank**, visibility **Public**, name `fleetmind`.
+3. Create an access token with **write** access (Settings, Access Tokens). Keep it secret.
+4. Prepare the files and push them (use your Hugging Face user name; the password is the token):
+   ```powershell
+   python -m scripts.make_space
+   cd dist/hf-space
+   git init
+   git add .
+   git commit -m "FleetMind public demo"
+   git remote add origin https://huggingface.co/spaces/<your-user-name>/fleetmind
+   git push -u origin main --force
+   ```
+5. Wait for the build (a few minutes), then open `https://<your-user-name>-fleetmind.hf.space` (the 3D view is at `/3d`).
+
+The free Space sleeps when nobody visits for a while and wakes up on the next visit. It has no API key and no AI.
+
 ### Compare restocking by people and by robots
 
 ```powershell
@@ -824,6 +882,8 @@ fleetmind/
 │   ├── mcp_try.py            # try the tools by hand from an MCP client
 │   ├── restock.py            # restocking by people (robots find them and tell each other) or robots
 │   ├── compare_restock.py    # who should restock: 4 ways over 30 seeds
+│   ├── agent.py              # the AI supervisor: plan, act (with approval), check
+│   ├── make_space.py         # prepare the public demo for Hugging Face Spaces
 │   └── record_tests.py       # records the tests for the test viewer
 ├── isaac/
 │   ├── world.py              # the warehouse as a 3D USD world for Isaac Sim
@@ -833,6 +893,7 @@ fleetmind/
 ├── web/
 │   ├── session.py            # LiveSession: one running simulation, its commands and messages
 │   ├── mcp_server.py         # the MCP server at /mcp (the tools for an AI agent)
+│   ├── agent_desk.py         # the AI supervisor on the website: chat, Approve/Reject, incidents
 │   ├── server.py             # FastAPI server: the page, the WebSocket and the background ticker
 │   └── static/
 │       └── live.html         # the live website
@@ -858,6 +919,8 @@ fleetmind/
 │   ├── test_mcp_tools.py     # every MCP tool through a real MCP client
 │   ├── test_restock.py       # people block robots, sightings reroute, stale spots, same run over MQTT
 │   ├── test_public.py        # the public demo: no tools, limits, runs by itself
+│   ├── test_rescue.py        # lost robots are restarted by a technician
+│   ├── test_agent.py         # the AI supervisor with a scripted model (no API key)
 │   └── conftest.py           # records tests for the test viewer (only when asked)
 ├── viewer/
 │   ├── draw.js               # drawing code shared by the replay viewer and the live website
@@ -867,6 +930,7 @@ fleetmind/
 │   └── mosquitto.conf        # the MQTT broker's settings
 ├── docker-compose.yml        # starts Mosquitto
 ├── Dockerfile                # the public demo as one container
+├── .github/workflows/tests.yml  # all tests and the demo container on every push
 ├── requirements.txt
 └── README.md
 ```
@@ -875,10 +939,10 @@ fleetmind/
 
 ## What's next
 
-1. **The AI agent (Claude):** a planner, then an executor that calls the MCP tools, then a critic that checks the result and plans again if needed. It remembers what it did during a task, and has limits on steps and tool failures. Test: "Prepare for a big delivery at 2 pm."
-2. **Incidents and approval:** the fleet manager calls the agent when it can't solve something itself (a blocked aisle, several breakdowns). Before a risky action (closing an aisle, delaying orders) the agent asks, and a person clicks Approve or Reject on the website.
+1. **Put the demo online** (the steps are above) and record a 2–3 minute demo video.
+2. **Evaluate the supervisor:** 10 to 50 incident scenarios with the expected outcome; measure how often it succeeds, how many steps and how much it costs. Done with my own API key, never in the public demo.
 3. **Eyes:** simulated camera images of an incident for a vision model, and a small classifier for damaged boxes.
-4. **Production:** put the public demo online (the container is ready), an evaluation suite of incident scenarios, and tests on every push (GitHub Actions). The AI agent stays OFF in the public demo, so nobody can use my API key.
+4. **Production:** tracing of every agent step (e.g. Langfuse), MLflow for runs and results. The AI agent stays OFF in the public demo, so nobody can use my API key.
 5. **Isaac Sim on a GPU machine:** run `isaac/run_isaac.py` in Isaac Sim, then a real wheeled robot model with a lidar.
 
 ---
