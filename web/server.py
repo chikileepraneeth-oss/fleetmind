@@ -33,7 +33,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from web.session import LiveSession
@@ -124,6 +124,19 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
     @app.get("/")
     def live_page():
         return FileResponse(STATIC / "live.html")
+
+    @app.get("/3d")
+    def world_page():
+        """The same live warehouse, drawn in 3D from the Isaac Sim world (isaac/warehouse.usda)."""
+        return FileResponse(STATIC / "world3d.html")
+
+    @app.get("/world.json")
+    def world_json():
+        try:
+            from isaac.export import world_data
+        except ImportError:
+            return JSONResponse({"error": "the 3D world needs usd-core: pip install usd-core"}, status_code=503)
+        return world_data(str(ROOT / "isaac" / "warehouse.usda"))
 
     @app.websocket("/ws")
     async def websocket(ws: WebSocket):

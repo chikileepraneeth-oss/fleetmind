@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FleetMind 3D</title>
+<style>
+  :root {
+    --bg: #eef0f3; --card: #fff; --ink: #1d2330; --muted: #6b7280; --line: #e3e6eb; --accent: #2f6fdf;
+    --idle: #8a8f98; --to-pickup: #2f6fdf; --to-dropoff: #1f9d55; --charge: #d99a00; --error: #d64545; --lost: #3b4252;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px;
+    background: var(--card); border-bottom: 1px solid var(--line); }
+  h1 { font-size: 17px; margin: 0; } h1 span { color: var(--muted); font-weight: 400; }
+  button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: #f1f3f6; color: var(--muted); white-space: nowrap; }
+  .pill.live { background: #e6f4ec; color: #1f7a45; } .pill.off { background: #fde8e8; color: #b03030; }
+  .stats { display: flex; gap: 14px; margin-left: auto; flex-wrap: wrap; }
+  .stats b { font-size: 16px; } .stats span { color: var(--muted); font-size: 12px; margin-left: 3px; }
+  main { position: relative; height: calc(100% - 54px); }
+  #view { position: absolute; inset: 0; }
+  aside { position: absolute; top: 12px; right: 12px; width: 250px; max-height: calc(100% - 24px); overflow: auto;
+    background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  aside h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 4px 0 6px; }
+  .robot { display: grid; grid-template-columns: 14px 32px 1fr 44px; gap: 6px; align-items: center; padding: 5px 4px;
+    border-radius: 8px; cursor: pointer; }
+  .robot:hover { background: #f4f6f9; } .robot.sel { background: #e8effc; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .small { color: var(--muted); font-size: 12px; }
+  .bar { height: 6px; background: #e3e6eb; border-radius: 3px; overflow: hidden; } .bar div { height: 100%; }
+  .hint { position: absolute; left: 12px; bottom: 12px; background: rgba(255,255,255,.9); border: 1px solid var(--line);
+    border-radius: 10px; padding: 8px 10px; font-size: 12px; color: var(--muted); max-width: 520px; }
+  .hint b { color: var(--ink); }
+  #msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 15px; pointer-events: none; }
+  @media (max-width: 700px) { aside { display: none; } .stats { margin-left: 0; } }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<header>
+  <h1>FleetMind <span>3D</span></h1>
+  <button id="play" class="primary">▶ Start</button>
+  <button id="reset">⟲ Reset</button>
+  <button id="overview">Overview</button>
+  <span class="pill" id="conn">connecting…</span>
+  <span class="pill" id="source"></span>
+  <a href="/" style="color:var(--accent);text-decoration:none">2D view →</a>
+  <div class="stats">
+    <div><b id="s-time">0</b><span id="s-time-label">tick</span></div>
+    <div><b id="s-delivered">0</b><span>delivered</span></div>
+    <div><b id="s-ontime">–</b><span>on time</span></div>
+    <div><b id="s-queue">0</b><span>waiting</span></div>
+    <div><b id="s-lost">0</b><span>lost</span></div>
+  </div>
+</header>
+<main>
+  <div id="view"></div>
+  <div id="msg">Loading the 3D world…</div>
+  <aside>
+    <h2>Robots (click to follow)</h2>
+    <div id="robots"></div>
+  </aside>
+  <div class="hint">
+    <b>This is the Isaac Sim world</b> (isaac/warehouse.usda), drawn in your browser and moved live by the fleet manager.
+    Drag to turn · scroll to zoom · right-drag to move · click a robot to follow it.
+  </div>
+</main>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const $ = (id) => document.getElementById(id);
+const css = getComputedStyle(document.documentElement);
+const COLOR = {
+  idle: css.getPropertyValue("--idle").trim(), to_home: css.getPropertyValue("--idle").trim(),
+  to_pickup: css.getPropertyValue("--to-pickup").trim(), to_dropoff: css.getPropertyValue("--to-dropoff").trim(),
+  to_charger: css.getPropertyValue("--charge").trim(), charging: css.getPropertyValue("--charge").trim(),
+  wait_charger: css.getPropertyValue("--charge").trim(), error: css.getPropertyValue("--error").trim(),
+  lost: css.getPropertyValue("--lost").trim(),
+};
+const LABEL = { idle: "Idle", to_home: "Going home", wait_charger: "Waiting for charger", to_pickup: "Going to shelf",
+  to_dropoff: "Carrying", to_charger: "Going to charge", charging: "Charging", lost: "Lost (no signal)" };
+const colorOf = (r) => r.task === "lost" ? COLOR.lost : r.status === "error" ? COLOR.error : (COLOR[r.task] || COLOR.idle);
+const taskOf = (r) => r.task === "lost" ? "Lost (no signal)" : r.status === "error" ? `Broken (${r.repair} left)` : (LABEL[r.task] || r.task);
+
+// USD world (metres, Z up)  ->  three.js (Y up):  (x, y, z)usd -> (x, z, -y)
+const fromUsd = (c) => new THREE.Vector3(c[0], c[2], -c[1]);
+const cellToWorld = (row, col) => new THREE.Vector3(col + 0.5, 0, row + 0.5);
+
+// ---------------------------------------------------------------- scene
+const view = $("view");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#dfe4ea");
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI / 2.05;
+scene.add(new THREE.HemisphereLight("#ffffff", "#8090a0", 1.6));
+const sun = new THREE.DirectionalLight("#ffffff", 2.2);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+scene.add(sun, sun.target);
+
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+
+function label(text, sub, px = 64) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256; canvas.height = sub ? 160 : 96;
+  const g = canvas.getContext("2d");
+  g.fillStyle = "rgba(255,255,255,.88)";
+  g.beginPath(); g.roundRect(4, 4, 248, canvas.height - 8, 18); g.fill();
+  g.fillStyle = "#1d2330"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.font = `700 ${px}px system-ui, sans-serif`;
+  g.fillText(text, 128, sub ? 56 : 50);
+  if (sub) { g.font = "500 40px system-ui, sans-serif"; g.fillStyle = "#5b6475"; g.fillText(sub, 128, 120); }
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
+  sprite.scale.set(0.9, 0.9 * canvas.height / 256, 1);
+  sprite.renderOrder = 10;
+  return sprite;
+}
+
+function boxMesh(b, opts = {}) {
+  const [sx, sy, sz] = b.size;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sz, sy),
+    new THREE.MeshStandardMaterial({ color: new THREE.Color(...b.colour), roughness: 0.75, ...opts }));
+  mesh.position.copy(fromUsd(b.centre));
+  mesh.castShadow = b.size[2] > 0.05;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// ---------------------------------------------------------------- the world from the USD file
+let world = null;
+const robots = {};                 // id -> {group, body, crate, tag, from, to, yaw, path line}
+let robotParts = {};
+const blockedGroup = new THREE.Group(); scene.add(blockedGroup);
+const routeGroup = new THREE.Group(); scene.add(routeGroup);
+
+async function loadWorld() {
+  const res = await fetch("/world.json");
+  if (!res.ok) { $("msg").textContent = (await res.json()).error || "Could not load the 3D world"; return; }
+  world = await res.json();
+  $("source").textContent = `world: ${world.source}`;
+  for (const b of world.boxes) {
+    scene.add(boxMesh(b));
+    if (b.kind === "shelf") {
+      const tag = label(b.shelf, b.item, 70);
+      tag.position.copy(fromUsd(b.centre)).add(new THREE.Vector3(0, b.size[2] / 2 + 0.35, 0));
+      tag.scale.multiplyScalar(0.8);
+      scene.add(tag);
+    }
+  }
+  robotParts = world.robot_parts;
+  const cx = world.width / 2, cz = world.depth / 2;
+  sun.position.set(cx - 6, 18, cz - 4); sun.target.position.set(cx, 0, cz);
+  const s = sun.shadow.camera; s.left = -14; s.right = 14; s.top = 14; s.bottom = -14; s.updateProjectionMatrix();
+  overview();
+  $("msg").textContent = "";
+}
+
+function overview() {
+  if (!world) return;
+  following = null;
+  const cx = world.width / 2, cz = world.depth / 2;
+  controls.target.set(cx, 0, cz);
+  camera.position.set(cx - 2, 14, cz + 13);
+  renderList();
+}
+
+function makeRobot(id) {
+  const group = new THREE.Group();
+  const parts = (robotParts[id] || robotParts[Object.keys(robotParts)[0]] || []);
+  let body = null;
+  for (const p of parts) {
+    const mesh = boxMesh(p);
+    group.add(mesh);
+    if (p.name === "Body") body = mesh;
+  }
+  const crate = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.28),
+    new THREE.MeshStandardMaterial({ color: "#c8955a", roughness: 0.9 }));
+  crate.position.set(-0.08, 0.47, 0); crate.castShadow = true; crate.visible = false;
+  group.add(crate);
+  const tag = label(id, null, 64);
+  tag.position.set(0, 0.95, 0); tag.scale.multiplyScalar(0.55);
+  group.add(tag);
+  group.traverse((o) => { o.userData.robot = id; });
+  scene.add(group);
+  const line = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: "#2f6fdf", dashSize: 0.15, gapSize: 0.1 }));
+  routeGroup.add(line);
+  return { group, body, crate, line, from: null, to: null, yaw: 0, targetYaw: 0 };
+}
+
+// ---------------------------------------------------------------- live state
+let cur = null, arrivedAt = 0, stepSeconds = 1 / 6, following = null;
+
+function onState(msg) {
+  const firstOrReset = !cur || msg.tick < cur.tick || msg.tick > cur.tick + 1;
+  cur = msg;
+  arrivedAt = performance.now();
+  stepSeconds = 1 / Math.max(1, msg.speed || 6);
+  for (const r of msg.robots) {
+    const R = robots[r.id] || (robots[r.id] = makeRobot(r.id));
+    const target = cellToWorld(r.pos[0], r.pos[1]);
+    R.from = firstOrReset || !R.to ? target.clone() : R.group.position.clone();
+    if (!firstOrReset && R.to && !target.equals(R.to)) {
+      const d = target.clone().sub(R.to);
+      R.targetYaw = Math.atan2(-d.z, d.x);              // face the way it drives
+    }
+    R.to = target;
+    if (firstOrReset) { R.group.position.copy(target); }
+    const colour = new THREE.Color(colorOf(r));
+    if (R.body) R.body.material.color.copy(colour);
+    R.group.traverse((o) => { if (o.material && o !== R.crate && !o.isSprite) { o.material.transparent = r.task === "lost"; o.material.opacity = r.task === "lost" ? 0.45 : 1; } });
+    R.crate.visible = !!r.carrying;
+    // planned route
+    const pts = [target.clone().setY(0.04), ...r.path.map(([row, col]) => cellToWorld(row, col).setY(0.04))];
+    R.line.geometry.dispose();
+    R.line.geometry = new THREE.BufferGeometry().setFromPoints(pts.length > 1 ? pts : []);
+    R.line.computeLineDistances();
+    R.line.material.color.copy(colour);
+    R.r = r;
+  }
+  for (const id of Object.keys(robots)) {
+    if (!msg.robots.some((r) => r.id === id)) { scene.remove(robots[id].group); routeGroup.remove(robots[id].line); delete robots[id]; }
+  }
+  // fallen boxes on blocked cells
+  blockedGroup.clear();
+  for (const [row, col] of msg.blocked) {
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), new THREE.MeshStandardMaterial({ color: "#a0703c" }));
+    box.position.copy(cellToWorld(row, col)).setY(0.2); box.rotation.y = 0.5; box.castShadow = true;
+    blockedGroup.add(box);
+  }
+  renderStats();
+  renderList();
+}
+
+function renderStats() {
+  const k = cur.kpis;
+  $("s-time").textContent = cur.clock || cur.tick;
+  $("s-time-label").textContent = cur.clock ? "" : "tick";
+  $("s-delivered").textContent = k.orders_delivered;
+  $("s-ontime").textContent = k.on_time_rate == null ? "–" : `${Math.round(k.on_time_rate * 100)}%`;
+  $("s-queue").textContent = k.orders_waiting;
+  $("s-lost").textContent = k.robots_lost || 0;
+  $("play").textContent = cur.running ? "❚❚ Pause" : "▶ Start";
+  $("play").disabled = !!cur.finished;
+}
+
+function renderList() {
+  if (!cur) return;
+  $("robots").innerHTML = cur.robots.map((r) => `
+    <div class="robot ${r.id === following ? "sel" : ""}" data-id="${r.id}">
+      <span class="dot" style="background:${colorOf(r)}"></span><b>${r.id}</b>
+      <span>${taskOf(r)}<div class="small">${r.carrying ? r.carrying + " · " + r.order : (r.order || "")}</div></span>
+      <span><div class="bar"><div style="width:${r.battery}%;background:${r.battery < 25 ? COLOR.error : "#5b6475"}"></div></div>
+        <div class="small" style="text-align:right">${Math.round(r.battery)}%</div></span>
+    </div>`).join("");
+}
+$("robots").addEventListener("click", (e) => {
+  const row = e.target.closest(".robot");
+  if (row) follow(row.dataset.id);
+});
+
+function follow(id) {
+  following = following === id ? null : id;
+  if (!following) return overview();
+  const R = robots[id];
+  camera.position.copy(R.group.position).add(new THREE.Vector3(-3, 4, 4));
+  renderList();
+}
+
+// click a robot in 3D
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+renderer.domElement.addEventListener("click", (e) => {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  ray.setFromCamera(mouse, camera);
+  const hit = ray.intersectObjects(Object.values(robots).map((R) => R.group), true)[0];
+  if (hit) follow(hit.object.userData.robot);
+});
+
+// ---------------------------------------------------------------- animation
+function animate() {
+  requestAnimationFrame(animate);
+  const t = Math.min(1, (performance.now() - arrivedAt) / 1000 / stepSeconds);
+  for (const R of Object.values(robots)) {
+    if (!R.to) continue;
+    R.group.position.lerpVectors(R.from, R.to, t);
+    let d = R.targetYaw - R.yaw;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    R.yaw += d * 0.25;
+    R.group.rotation.y = R.yaw;
+  }
+  if (following && robots[following]) {
+    const p = robots[following].group.position;
+    const delta = p.clone().sub(controls.target);
+    controls.target.add(delta); camera.position.add(delta);
+  }
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ---------------------------------------------------------------- connection
+let ws = null;
+function connect() {
+  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  ws.onopen = () => { $("conn").textContent = "live"; $("conn").className = "pill live"; };
+  ws.onclose = () => { $("conn").textContent = "disconnected"; $("conn").className = "pill off"; setTimeout(connect, 1000); };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "state") onState(msg);
+    if (msg.type === "hello") cur = null;
+  };
+}
+const send = (c) => ws && ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(c));
+$("play").onclick = () => send({ type: cur && cur.running ? "pause" : "start" });
+$("reset").onclick = () => send({ type: "reset" });
+$("overview").onclick = overview;
+
+resize();
+await loadWorld();
+connect();
+animate();
+</script>
+</body>
+</html>
