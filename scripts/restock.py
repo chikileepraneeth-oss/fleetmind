@@ -32,6 +32,7 @@ LOAD_TICKS = 3
 RESTOCK_TICKS = 8
 FULL_STOCK = 20
 KNOWN_FOR = 40                 # ticks a reported spot is kept without anyone seeing the person again
+MOVING_HOLD = 2                # ticks the robots plan around a spot where a person was seen WALKING
 
 
 class Restocker:
@@ -94,8 +95,10 @@ class RestockCrew:
             known = self.known.get(m.id)
             if known and known["cell"] == m.position:
                 known["tick"] = self.sim.tick
+                known["moving"] = False
                 continue
-            self.known[m.id] = {"cell": m.position, "seen_by": "badge", "tick": self.sim.tick}
+            self.known[m.id] = {"cell": m.position, "seen_by": "badge", "tick": self.sim.tick,
+                                "moving": known is not None}
             self._reroute_through(m.id, m.position)
 
     def _work(self, m):
@@ -214,9 +217,11 @@ class RestockCrew:
                 known = self.known.get(pid)
                 if known and known["cell"] == cell:
                     known["tick"] = sim.tick                     # still there: keep the spot fresh
+                    known["moving"] = False
                     continue
                 moved = f"moved from {known['cell']} to" if known else "is at"
-                self.known[pid] = {"cell": cell, "seen_by": robot.robot_id, "tick": sim.tick}
+                self.known[pid] = {"cell": cell, "seen_by": robot.robot_id, "tick": sim.tick,
+                                   "moving": known is not None}
                 self.reports += 1
                 sim.log("person_seen", robot.robot_id, f"{pid} {moved} {cell}: told every robot")
                 self._reroute_through(pid, cell)
@@ -231,13 +236,23 @@ class RestockCrew:
                 del self.known[pid]
                 sim.table.release(pid)
 
+    def _hold(self, known):
+        """
+        How long the robots plan around a known spot. A person seen WALKING will have left it in a
+        moment, so only the next ticks; a person standing (restocking, loading) the whole window.
+        """
+        if self.sim.config.person_hold == "smart" and known.get("moving"):
+            return MOVING_HOLD
+        return self.sim.config.window
+
     def _reroute_through(self, pid, cell):
-        """Every robot whose planned route goes through this cell plans a new one."""
+        """Every robot whose planned route goes through this cell (while it is booked) plans a new one."""
         sim = self.sim
         sim.table.release(pid)
+        horizon = self._hold(self.known[pid]) + 1
         rerouted = []
         for robot in sim._robots():
-            if cell in robot.path:
+            if cell in robot.path[:horizon]:
                 robot.path = []
                 sim.table.release(robot.robot_id)
                 rerouted.append(robot.robot_id)
@@ -251,7 +266,7 @@ class RestockCrew:
         now = sim.tick - 1
         for pid, known in self.known.items():
             sim.table.release(pid)
-            sim.table.reserve_stay(pid, known["cell"], now, now + sim.config.window)
+            sim.table.reserve_stay(pid, known["cell"], now, now + self._hold(known))
 
     def _can_see(self, eye, cell):
         """Within sight_range cells, and not through a shelf or a wall."""
@@ -272,10 +287,15 @@ class RestockCrew:
         return clear([corner_a]) or clear([corner_b])
 
     def known_cells(self):
-        """What the robots know: restock robots share their position; people only where a robot saw them."""
+        """
+        Where the robots know someone STANDS (so a robot picks from another spot): restock robots
+        share their position; people only where they were seen standing. A person seen walking will
+        have gone in a moment: changing pick spots for them made robots switch spots again and again
+        (with badges: 52 ticks per delivery instead of 47, over 30 seeds).
+        """
         if self.kind == "robot":
             return {m.position for m in self.members}
-        return {k["cell"] for k in self.known.values()}
+        return {k["cell"] for k in self.known.values() if not k.get("moving")}
 
     # ------------------------------------------------------------------
     # For the screen

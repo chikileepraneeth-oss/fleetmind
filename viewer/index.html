@@ -381,6 +381,7 @@
     map.drawStatic(rec.layout);
     map.drawBlocked(rec.frames[tick].blocked);
     drawTrails(tick);
+    map.drawPeople(rec.frames[tick].people, rec.frames[tick].known_people);
     drawRobots(tick, frac);
 
     // realistic days: 1 tick = 1 minute from 06:00, so show the clock too

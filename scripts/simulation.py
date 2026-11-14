@@ -87,6 +87,7 @@ class SimConfig:
     restockers: int = 2              # how many people / restocking robots
     sight_range: int = 2             # people: a robot sees a person this many cells away (not through shelves)
     people_tracking: str = "sightings"  # people: "sightings" (robots find them and tell each other) or "badges" (location tags)
+    person_hold: str = "smart"       # people: "smart" (a walking person is avoided for 2 ticks) or "window" (every spot for 16)
 
 
 class Simulation:

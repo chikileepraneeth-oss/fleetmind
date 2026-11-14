@@ -152,7 +152,7 @@ Now every robot uses **A\*** (A-star). It plans the whole route from start to en
 ### 9. I can see everything in my browser
 I built two viewers that open in the browser:
 
-- **Replay viewer** (`viewer/index.html`): plays back a whole day in the warehouse. I can pause, jump to any tick, follow one robot, and see its planned route, battery and what it carries. There are 14 scenarios, like a realistic Friday, rush hour, breakdown day, blocked aisles, low battery, single robot and a 20-robot stress test, plus "old version" scenarios to compare with earlier versions.
+- **Replay viewer** (`viewer/index.html`): plays back a whole day in the warehouse. I can pause, jump to any tick, follow one robot, and see its planned route, battery and what it carries. There are 16 scenarios, like a realistic Friday, rush hour, breakdown day, blocked aisles, low battery, single robot and a 20-robot stress test, plus "old version" scenarios to compare with earlier versions.
 - **Test viewer** (`viewer/tests.html`): shows every test step by step on a small map, next to the test code.
 
 ### 10. Smarter assignment and charging
@@ -422,6 +422,38 @@ The tools run inside the live website at `/mcp` (`web/mcp_server.py`), so they s
 - **Technicians:** when a robot breaks down, a technician in an orange vest walks from the staff desk (in the loading-dock corner, where robots never drive) through the aisles to the robot, repairs it, and walks back when it works again. The walk takes the first 30% of the repair time.
 - **20 robots in the 3D world:** the 3D world has 5 robots. When the manager asks for robots the world doesn't have (R6 to R20 in the stress test), the bridge copies a robot into the world and connects it. Before, they were shown as lost, because nobody was answering for them.
 
+### 21. Restocking: people the robots must find, or robots that book their way
+Every day goods arrive at the loading docks and must go onto the shelves. Two people or two restocking robots do this all day: fetch goods at a dock (3 minutes), carry them to the shelf with the lowest stock, restock it (8 minutes), next job. While they work they stand in the aisles, often on the robots' pick spots.
+
+**Restocking by people** (scenario "Restocking by people", `scripts/restock.py`):
+- The robots **don't know where the people are**. A person takes up a cell, and a robot can't drive into it, but the planner doesn't know it is there.
+- A robot **sees** a person up to 2 cells away (not through a shelf). It **tells every robot**: the person's cell is booked in the shared reservation table, and every robot whose route goes through it plans a new one at once.
+- When a robot sees the person **somewhere else**, the spot moves for everyone ("P2 moved from (6, 14) to (7, 14): told every robot"). When a robot looks at an old spot and **nobody is there**, it clears it ("P2 is no longer at (8, 14)").
+- A person seen **walking** is avoided for 2 minutes (they will have gone by then), a person **standing** (restocking) for the whole planning window.
+- The 2D and 3D views show where the people **really** are, and a red ring "P1?" where the **robots believe** they are. When the two differ, nobody has seen the person since they walked on.
+
+**People with location badges** (`people_tracking="badges"`): the same, but people wear a location tag (like UWB badges in real warehouses), so the fleet always knows where they are.
+
+**Restocking by robots** (scenario "Restocking by robots"): two restocking robots do the same jobs. They are part of the fleet: they **book their route** like every robot, so nobody has to find them.
+
+**Results** (`python -m scripts.compare_restock`): Normal day, 500 ticks, 30 seeds, average +/- standard error:
+
+| | Delivered | Avg delivery (ticks) | Late | Reroutes for people | Surprise stops | Collisions |
+|---|---|---|---|---|---|---|
+| No restocking | 87.6 +/-0.9 | 38.6 +/-2.9 | 3.9 +/-1.6 | – | – | 0 |
+| People, robots find them | 82.1 +/-0.9 | 48.0 +/-3.1 | 5.3 +/-1.5 | 28.5 | 1.8 | 0 |
+| People with badges | 83.3 +/-0.9 | 46.5 +/-3.4 | 5.8 +/-2.5 | 34.0 | 5.9 | 0 |
+| Restocking robots | 84.3 +/-0.9 | 48.1 +/-3.4 | 5.5 +/-2.2 | – | 4.0 | 0 |
+
+- **Restocking costs the fleet about 10 minutes per delivery and 3–5 orders a day**, because someone stands in the aisles.
+- **Who restocks matters much less than I expected:** the differences between people, badges and robots are smaller than the uncertainty (+/-3 ticks). The cost comes from the space they use, not from how the robots learn where they are.
+- **Robots find people in time:** under 2 surprise stops per day (a person stepped right in front of a robot), and never a collision.
+
+**What I got wrong first:**
+- With 10 seeds, people with badges looked much **slower** than people the robots had to find (56 vs 50 ticks). I first guessed it was the 16-minute booking of a walking person's cell. I tested that: it was not it.
+- The real cause: a robot **chose a new pick spot** whenever a known person stood on its spot. With badges the robots know every step of every person, so a person walking past a pick spot made the robot switch spots again and again. Now only a person who is **standing** makes a robot pick from another side. Badges went from 52.4 to 46.5 ticks over 30 seeds.
+- And with 30 seeds instead of 10, most of the remaining "differences" disappeared into the noise. The lesson: show the +/-, and use enough seeds before believing a difference.
+
 ### How much can I trust this simulator?
 Real robots fail in many more ways than my simulation has, so I don't use it to predict exact numbers. I use it to compare ideas and to test software.
 
@@ -633,6 +665,12 @@ python -m scripts.mcp_try list
 python -m scripts.mcp_try call close_aisle aisle=BC "reason=a box fell"
 ```
 
+### Compare restocking by people and by robots
+
+```powershell
+python -m scripts.compare_restock               # 30 seeds, a few minutes
+```
+
 ### Make the order history and test the forecast
 
 ```powershell
@@ -711,6 +749,8 @@ fleetmind/
 │   ├── talk.py               # the message story: what they say to each other, and why
 │   ├── fleet_tools.py        # the AI agent's tools: status, robots, orders, pause, aisles, forecast
 │   ├── mcp_try.py            # try the tools by hand from an MCP client
+│   ├── restock.py            # restocking by people (robots find them and tell each other) or robots
+│   ├── compare_restock.py    # who should restock: 4 ways over 30 seeds
 │   └── record_tests.py       # records the tests for the test viewer
 ├── isaac/
 │   ├── world.py              # the warehouse as a 3D USD world for Isaac Sim
@@ -743,6 +783,7 @@ fleetmind/
 │   ├── test_mqtt_broker.py   # the same over a real Mosquitto (skipped without it)
 │   ├── test_isaac_world.py   # the 3D world and the robots in it (no GPU needed)
 │   ├── test_mcp_tools.py     # every MCP tool through a real MCP client
+│   ├── test_restock.py       # people block robots, sightings reroute, stale spots, same run over MQTT
 │   └── conftest.py           # records tests for the test viewer (only when asked)
 ├── viewer/
 │   ├── draw.js               # drawing code shared by the replay viewer and the live website

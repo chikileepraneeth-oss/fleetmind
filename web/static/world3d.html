@@ -256,6 +256,7 @@ function onState(msg) {
   }
   renderBlocked(msg);
   updateTechnicians(msg);
+  updateRestockers(msg, firstOrReset);
   renderStats();
   renderList();
 }
@@ -433,6 +434,91 @@ function updateTechnicians(msg) {
   }
 }
 
+// ---------------------------------------------------------------- restockers (people or robots)
+const restockers = {};               // id -> {group, from, to, yaw, label text}
+const believedGroup = new THREE.Group(); scene.add(believedGroup);
+let believedKey = "";
+window.fleet3d.restockers = restockers;
+
+function restockText(p) {
+  return { idle: "waiting", to_dock: "to the dock", loading: "loading goods",
+    to_shelf: `carrying to ${p.shelf}`, restocking: `restocking ${p.shelf}` }[p.task] || p.task;
+}
+
+function makeRestocker(p) {
+  const g = new THREE.Group();
+  if (p.kind === "robot") {
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.3, 0.5), mat("#e0a800"));
+    body.position.y = 0.2; body.castShadow = true; g.add(body);
+    for (let i = 0; i < 2; i++) {
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.3), mat("#c8955a"));
+      crate.position.set(0, 0.45 + i * 0.21, 0); crate.castShadow = true; crate.name = "crate"; g.add(crate);
+    }
+  } else {
+    g.add(human("#2e9e5b"));
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.25), mat("#c8955a"));
+    box.position.set(0, 1.0, 0.25); box.name = "crate"; g.add(box);
+  }
+  scene.add(g);
+  return { group: g, from: null, to: null, yaw: 0, targetYaw: 0, text: "", tag: null, kind: p.kind };
+}
+
+function updateRestockers(msg, reset) {
+  const people = msg.people || [];
+  for (const p of people) {
+    const R = restockers[p.id] || (restockers[p.id] = makeRestocker(p));
+    const target = cellToWorld(p.pos[0], p.pos[1]);
+    R.from = reset || !R.to ? target.clone() : R.group.position.clone();
+    if (!reset && R.to && !target.equals(R.to)) {
+      const d = target.clone().sub(R.to);
+      R.targetYaw = Math.atan2(-d.z, d.x);
+    }
+    R.to = target;
+    if (reset) R.group.position.copy(target);
+    R.group.traverse((o) => { if (o.name === "crate") o.visible = !!p.carrying || p.kind === "robot" && p.task !== "to_dock"; });
+    const text = restockText(p);
+    if (text !== R.text) {                          // a new label only when the task changes
+      if (R.tag) R.group.remove(R.tag);
+      R.tag = label(p.id, text, 60);
+      R.tag.position.set(0, p.kind === "robot" ? 1.25 : 2.05, 0);
+      R.tag.scale.multiplyScalar(0.6);
+      R.group.add(R.tag);
+      R.text = text;
+    }
+  }
+  for (const id of Object.keys(restockers)) {
+    if (!people.some((p) => p.id === id)) { scene.remove(restockers[id].group); delete restockers[id]; }
+  }
+  // where the robots BELIEVE the people are
+  const known = msg.known_people || [];
+  const key = JSON.stringify(known.map((k) => [k.id, k.cell, k.seen_by]));
+  if (key === believedKey) return;
+  believedKey = key;
+  believedGroup.clear();
+  for (const k of known) {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.45, 32),
+      new THREE.MeshBasicMaterial({ color: "#d64545", transparent: true, opacity: 0.8, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.copy(cellToWorld(k.cell[0], k.cell[1])).setY(0.02);
+    believedGroup.add(ring);
+    const tag = label(`${k.id}?`, k.seen_by === "badge" ? "badge" : `seen by ${k.seen_by}`, 60);
+    tag.position.copy(cellToWorld(k.cell[0], k.cell[1])).setY(0.55);
+    tag.scale.multiplyScalar(0.5);
+    believedGroup.add(tag);
+  }
+}
+
+function animateRestockers(t) {
+  for (const R of Object.values(restockers)) {
+    if (!R.to) continue;
+    R.group.position.lerpVectors(R.from, R.to, t);
+    let d = R.targetYaw - R.yaw;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    R.yaw += d * 0.25;
+    R.group.rotation.y = R.kind === "robot" ? R.yaw : R.yaw + Math.PI / 2;   // people face the way they walk
+  }
+}
+
 function animateTechnicians(t) {
   if (!cur) return;
   const now = cur.tick + (cur.running ? t : 0);
@@ -516,6 +602,7 @@ function animate() {
     R.group.rotation.y = R.yaw;
   }
   animateTechnicians(t);
+  animateRestockers(t);
   if (following && robots[following]) {
     const p = robots[following].group.position;
     const delta = p.clone().sub(controls.target);

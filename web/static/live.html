@@ -330,6 +330,12 @@
           map.drawTrail(trails[r.id] || [], r, !!selected);
         }
       }
+      const slid = {};
+      for (const p of cur.people || []) {
+        const before = (prev.people || []).find((x) => x.id === p.id) || p;
+        slid[p.id] = [before.pos[0] + (p.pos[0] - before.pos[0]) * frac, before.pos[1] + (p.pos[1] - before.pos[1]) * frac];
+      }
+      map.drawPeople(cur.people, cur.known_people, slid);
       for (const r of cur.robots) {
         const before = prev.robots.find((x) => x.id === r.id) || r;
         const row = before.pos[0] + (r.pos[0] - before.pos[0]) * frac;

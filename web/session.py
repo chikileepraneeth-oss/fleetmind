@@ -257,6 +257,8 @@ class LiveSession:
             "blocked": frame["blocked"],
             "blocked_info": self.sim.blocked_info(),        # WHY each cell is blocked (the 3D view shows it)
             "queue": frame["queue"],
+            "people": frame.get("people", []),             # restocking people / robots (where they REALLY are)
+            "known_people": frame.get("known_people", []), # where the robots BELIEVE the people are
             "events": [list(e) for e in events],
             "clock": clock(frame["tick"]) if self.realistic else None,   # 1 tick = 1 minute from 06:00
             "finished": self.finished,
