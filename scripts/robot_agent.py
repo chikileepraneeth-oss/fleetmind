@@ -72,6 +72,18 @@ class RobotAgent:
         self.order_errors = []             # rejected orders, reported in "errors" until the next good order
 
         self.inbox = []                    # (kind, message) waiting for the next clock tick
+        self.moved_through = []            # cells driven through in the last tick (for animation)
+        self.publish_after_tick = True     # Isaac Sim reports only after the robot has really arrived
+
+    # Hooks for robots that live in a 3D simulator (isaac/bridge.py):
+
+    def dispatch(self, handler, *args):
+        """Run a message handler. Isaac Sim overrides this to run it on its main thread."""
+        handler(*args)
+
+    def reported_pose(self):
+        """(cell, theta) to report in the state. Isaac Sim reports the MEASURED pose of the body."""
+        return self.position, 0.0
 
     # ------------------------------------------------------------------
     # Connecting
@@ -82,9 +94,10 @@ class RobotAgent:
         will = (v.topic(self.serial, "connection"),
                 v.connection(self.header, self.tick, "CONNECTIONBROKEN"), True)
         self.conn = self.broker.connect(self.serial, will=will)
-        self.conn.subscribe(v.topic(self.serial, "order"), lambda t, m: self._receive("order", m))
-        self.conn.subscribe(v.topic(self.serial, "instantActions"), lambda t, m: self._receive("instantActions", m))
-        self.conn.subscribe(v.CLOCK_TOPIC, lambda t, m: self.on_clock(m))
+        self.conn.subscribe(v.topic(self.serial, "order"), lambda t, m: self.dispatch(self._receive, "order", m))
+        self.conn.subscribe(v.topic(self.serial, "instantActions"),
+                            lambda t, m: self.dispatch(self._receive, "instantActions", m))
+        self.conn.subscribe(v.CLOCK_TOPIC, lambda t, m: self.dispatch(self.on_clock, m))
         self.conn.publish(v.topic(self.serial, "connection"),
                           v.connection(self.header, self.tick, "ONLINE"), retain=True)
         self.publish_state()
@@ -147,6 +160,7 @@ class RobotAgent:
         with self.lock:
             self.tick = int(message["tick"])
             self.driving = False
+            self.moved_through = []
             if self.repair_left > 0:
                 self.repair_left -= 1
             inbox, self.inbox = self.inbox, []
@@ -164,7 +178,8 @@ class RobotAgent:
                 self.battery = min(100.0, self.battery + Robot.CHARGE_PER_TICK)
                 if self.battery >= 100:
                     self.charging = False
-            self.publish_state()
+            if self.publish_after_tick:
+                self.publish_state()
 
     # ------------------------------------------------------------------
     # Orders
@@ -221,6 +236,7 @@ class RobotAgent:
                                                     f"{node['nodeId']} is not a floor cell"))
                     return
                 self.position = cell
+                self.moved_through.append(cell)
                 self.battery -= Robot.BATTERY_PER_STEP
                 self.driving = True
             self.last_seq = node["sequenceId"]
@@ -327,7 +343,8 @@ class RobotAgent:
                 errors.append(_error("breakdown", "FATAL", f"repair in {self.repair_left} ticks"))
             if self.position is not None and self.battery < Robot.BATTERY_PER_STEP:
                 errors.append(_error("batteryEmpty", "WARNING", "battery empty, waiting for a battery swap"))
-            pos = self.position or (0, 0)
+            cell, theta = self.reported_pose()
+            pos = cell or (0, 0)
             return {
                 **self.header.make("state", self.tick),
                 "orderId": self.order_id,
@@ -346,7 +363,7 @@ class RobotAgent:
                 "errors": errors,
                 "information": [],
                 "safetyState": {"eStop": "NONE", "fieldViolation": False},
-                "agvPosition": {**v.position(pos), "theta": 0.0, "positionInitialized": self.position is not None},
+                "agvPosition": {**v.position(pos), "theta": theta, "positionInitialized": cell is not None},
                 "loads": [{"loadId": self.load, "loadType": "item"}] if self.load else [],
             }
 

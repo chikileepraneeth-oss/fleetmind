@@ -5,6 +5,7 @@ These tests are skipped when no broker is running. Start one with:
     docker compose up -d
 """
 
+import os
 import socket
 import subprocess
 import sys
@@ -17,7 +18,8 @@ from scripts.fleet_link import FleetLink, start_robots
 from scripts.record import build_simulation, snapshot
 
 LAYOUT = "layouts/main_warehouse.json"
-HOST, PORT = "127.0.0.1", 1883
+HOST = "127.0.0.1"
+PORT = int(os.environ.get("FLEETMIND_MQTT_PORT", "1883"))   # another broker, e.g. while a demo uses 1883
 
 
 def broker_running():
@@ -28,7 +30,7 @@ def broker_running():
         return False
 
 
-pytestmark = pytest.mark.skipif(not broker_running(), reason="no MQTT broker on 127.0.0.1:1883 (docker compose up -d)")
+pytestmark = pytest.mark.skipif(not broker_running(), reason=f"no MQTT broker on {HOST}:{PORT} (docker compose up -d)")
 
 
 def test_a_run_over_mosquitto_is_exactly_the_same_run():
@@ -55,7 +57,7 @@ def test_a_killed_robot_process_is_marked_lost():
     broker = MqttBroker(HOST, PORT)
     sim = build_simulation("calm", LAYOUT)
     others = start_robots(broker, ["R1", "R2", "R3", "R4"], LAYOUT, heartbeat=True)
-    robot = subprocess.Popen([sys.executable, "-m", "scripts.robot_agent", "R5"],
+    robot = subprocess.Popen([sys.executable, "-m", "scripts.robot_agent", "R5", "--broker", f"{HOST}:{PORT}"],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     link = FleetLink(sim, broker, client_id="test-manager-2", lost_after=2.0)
     try:

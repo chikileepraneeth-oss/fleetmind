@@ -1,0 +1,2050 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "World"
+{
+    def PhysicsScene "PhysicsScene"
+    {
+        float physics:gravityMagnitude = 9.81
+    }
+
+    def "Lights"
+    {
+        def DomeLight "Dome"
+        {
+            float inputs:intensity = 600
+        }
+
+        def DistantLight "Sun"
+        {
+            float inputs:intensity = 2500
+            float3 xformOp:rotateXYZ = (-40, 20, 0)
+            uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+        }
+    }
+
+    def "Warehouse"
+    {
+        def Cube "Floor" (
+            prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+        )
+        {
+            custom string fleetmind:kind = "floor"
+            rel material:binding = </World/Looks/floor>
+            color3f[] primvars:displayColor = [(0.82, 0.83, 0.85)]
+            double size = 1
+            float3 xformOp:scale = (17, 13, 0.02)
+            double3 xformOp:translate = (8.5, -6.5, -0.01)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+
+        def "Walls"
+        {
+            def Cube "r0_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c1" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 1)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (1.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c2" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 2)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (2.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c3" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 3)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (3.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c4" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 4)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (4.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c5" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 5)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (5.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c6" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 6)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (6.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c7" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 7)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (7.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c8" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 8)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (8.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c9" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 9)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (9.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c10" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 10)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (10.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c11" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 11)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (11.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c12" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 12)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (12.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c13" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 13)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (13.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c14" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 14)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (14.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c15" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 15)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (15.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r0_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (0, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -0.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r1_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (1, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -1.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r1_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (1, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -1.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r2_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -2.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r2_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -2.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r3_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (3, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -3.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r3_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (3, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -3.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r4_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -4.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r4_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -4.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r5_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (5, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -5.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r5_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (5, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -5.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r6_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -6.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r6_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -6.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r7_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (7, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -7.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r7_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (7, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -7.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r8_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -8.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r8_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -8.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r9_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (9, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -9.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r9_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (9, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -9.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r10_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (10, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -10.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r10_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (10, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -10.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r11_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (11, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -11.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r11_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (11, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -11.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c0" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 0)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (0.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c1" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 1)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (1.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c2" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 2)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (2.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c3" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 3)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (3.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c4" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 4)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (4.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c5" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 5)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (5.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c6" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 6)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (6.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c7" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 7)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (7.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c8" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 8)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (8.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c9" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 9)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (9.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c10" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 10)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (10.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c11" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 11)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (11.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c12" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 12)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (12.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c13" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 13)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (13.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c14" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 14)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (14.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c15" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 15)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (15.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r12_c16" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (12, 16)
+                custom string fleetmind:kind = "wall"
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (1, 1, 2)
+                double3 xformOp:translate = (16.5, -12.5, 1)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def "Chargers"
+        {
+            def Cube "r1_c15" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (1, 15)
+                custom string fleetmind:kind = "charger"
+                rel material:binding = </World/Looks/charger>
+                color3f[] primvars:displayColor = [(0.95, 0.75, 0.1)]
+                double size = 1
+                float3 xformOp:scale = (0.9, 0.9, 0.02)
+                double3 xformOp:translate = (15.5, -1.5, 0.01)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r1_c15_post" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/charger>
+                color3f[] primvars:displayColor = [(0.95, 0.75, 0.1)]
+                double size = 1
+                float3 xformOp:scale = (0.1, 0.3, 0.8)
+                double3 xformOp:translate = (15.9, -1.5, 0.4)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r2_c15" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 15)
+                custom string fleetmind:kind = "charger"
+                rel material:binding = </World/Looks/charger>
+                color3f[] primvars:displayColor = [(0.95, 0.75, 0.1)]
+                double size = 1
+                float3 xformOp:scale = (0.9, 0.9, 0.02)
+                double3 xformOp:translate = (15.5, -2.5, 0.01)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r2_c15_post" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/charger>
+                color3f[] primvars:displayColor = [(0.95, 0.75, 0.1)]
+                double size = 1
+                float3 xformOp:scale = (0.1, 0.3, 0.8)
+                double3 xformOp:translate = (15.9, -2.5, 0.4)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r3_c15" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (3, 15)
+                custom string fleetmind:kind = "charger"
+                rel material:binding = </World/Looks/charger>
+                color3f[] primvars:displayColor = [(0.95, 0.75, 0.1)]
+                double size = 1
+                float3 xformOp:scale = (0.9, 0.9, 0.02)
+                double3 xformOp:translate = (15.5, -3.5, 0.01)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r3_c15_post" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/charger>
+                color3f[] primvars:displayColor = [(0.95, 0.75, 0.1)]
+                double size = 1
+                float3 xformOp:scale = (0.1, 0.3, 0.8)
+                double3 xformOp:translate = (15.9, -3.5, 0.4)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def "Shelves"
+        {
+            def Cube "A1" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 2)
+                custom string fleetmind:item = "apples"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Fruit"
+                custom string fleetmind:shelf = "A1"
+                rel material:binding = </World/Looks/shelf_A>
+                color3f[] primvars:displayColor = [(0.55, 0.65, 0.9)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (2.5, -2.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "A2" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 3)
+                custom string fleetmind:item = "bananas"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Fruit"
+                custom string fleetmind:shelf = "A2"
+                rel material:binding = </World/Looks/shelf_A>
+                color3f[] primvars:displayColor = [(0.55, 0.65, 0.9)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (3.5, -2.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "A3" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 4)
+                custom string fleetmind:item = "oranges"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Fruit"
+                custom string fleetmind:shelf = "A3"
+                rel material:binding = </World/Looks/shelf_A>
+                color3f[] primvars:displayColor = [(0.55, 0.65, 0.9)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (4.5, -2.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "A4" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 5)
+                custom string fleetmind:item = "grapes"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Fruit"
+                custom string fleetmind:shelf = "A4"
+                rel material:binding = </World/Looks/shelf_A>
+                color3f[] primvars:displayColor = [(0.55, 0.65, 0.9)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (5.5, -2.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "A5" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 6)
+                custom string fleetmind:item = "pears"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Fruit"
+                custom string fleetmind:shelf = "A5"
+                rel material:binding = </World/Looks/shelf_A>
+                color3f[] primvars:displayColor = [(0.55, 0.65, 0.9)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (6.5, -2.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "E1" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 9)
+                custom string fleetmind:item = "chips"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Snacks"
+                custom string fleetmind:shelf = "E1"
+                rel material:binding = </World/Looks/shelf_E>
+                color3f[] primvars:displayColor = [(0.95, 0.6, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (9.5, -2.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "E2" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 10)
+                custom string fleetmind:item = "cookies"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Snacks"
+                custom string fleetmind:shelf = "E2"
+                rel material:binding = </World/Looks/shelf_E>
+                color3f[] primvars:displayColor = [(0.95, 0.6, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (10.5, -2.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "E3" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 11)
+                custom string fleetmind:item = "chocolate"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Snacks"
+                custom string fleetmind:shelf = "E3"
+                rel material:binding = </World/Looks/shelf_E>
+                color3f[] primvars:displayColor = [(0.95, 0.6, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (11.5, -2.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "E4" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 12)
+                custom string fleetmind:item = "crackers"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Snacks"
+                custom string fleetmind:shelf = "E4"
+                rel material:binding = </World/Looks/shelf_E>
+                color3f[] primvars:displayColor = [(0.95, 0.6, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (12.5, -2.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "E5" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (2, 13)
+                custom string fleetmind:item = "nuts"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Snacks"
+                custom string fleetmind:shelf = "E5"
+                rel material:binding = </World/Looks/shelf_E>
+                color3f[] primvars:displayColor = [(0.95, 0.6, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (13.5, -2.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "B1" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 2)
+                custom string fleetmind:item = "carrots"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Vegetables"
+                custom string fleetmind:shelf = "B1"
+                rel material:binding = </World/Looks/shelf_B>
+                color3f[] primvars:displayColor = [(0.55, 0.8, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (2.5, -4.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "B2" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 3)
+                custom string fleetmind:item = "potatoes"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Vegetables"
+                custom string fleetmind:shelf = "B2"
+                rel material:binding = </World/Looks/shelf_B>
+                color3f[] primvars:displayColor = [(0.55, 0.8, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (3.5, -4.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "B3" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 4)
+                custom string fleetmind:item = "onions"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Vegetables"
+                custom string fleetmind:shelf = "B3"
+                rel material:binding = </World/Looks/shelf_B>
+                color3f[] primvars:displayColor = [(0.55, 0.8, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (4.5, -4.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "B4" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 5)
+                custom string fleetmind:item = "tomatoes"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Vegetables"
+                custom string fleetmind:shelf = "B4"
+                rel material:binding = </World/Looks/shelf_B>
+                color3f[] primvars:displayColor = [(0.55, 0.8, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (5.5, -4.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "B5" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 6)
+                custom string fleetmind:item = "peppers"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Vegetables"
+                custom string fleetmind:shelf = "B5"
+                rel material:binding = </World/Looks/shelf_B>
+                color3f[] primvars:displayColor = [(0.55, 0.8, 0.6)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (6.5, -4.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "F1" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 9)
+                custom string fleetmind:item = "water"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Drinks"
+                custom string fleetmind:shelf = "F1"
+                rel material:binding = </World/Looks/shelf_F>
+                color3f[] primvars:displayColor = [(0.55, 0.8, 0.85)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (9.5, -4.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "F2" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 10)
+                custom string fleetmind:item = "juice"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Drinks"
+                custom string fleetmind:shelf = "F2"
+                rel material:binding = </World/Looks/shelf_F>
+                color3f[] primvars:displayColor = [(0.55, 0.8, 0.85)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (10.5, -4.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "F3" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 11)
+                custom string fleetmind:item = "soda"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Drinks"
+                custom string fleetmind:shelf = "F3"
+                rel material:binding = </World/Looks/shelf_F>
+                color3f[] primvars:displayColor = [(0.55, 0.8, 0.85)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (11.5, -4.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "F4" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 12)
+                custom string fleetmind:item = "coffee"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Drinks"
+                custom string fleetmind:shelf = "F4"
+                rel material:binding = </World/Looks/shelf_F>
+                color3f[] primvars:displayColor = [(0.55, 0.8, 0.85)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (12.5, -4.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "F5" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (4, 13)
+                custom string fleetmind:item = "tea"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Drinks"
+                custom string fleetmind:shelf = "F5"
+                rel material:binding = </World/Looks/shelf_F>
+                color3f[] primvars:displayColor = [(0.55, 0.8, 0.85)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (13.5, -4.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "C1" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 2)
+                custom string fleetmind:item = "rice"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Grains"
+                custom string fleetmind:shelf = "C1"
+                rel material:binding = </World/Looks/shelf_C>
+                color3f[] primvars:displayColor = [(0.95, 0.8, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (2.5, -6.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "C2" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 3)
+                custom string fleetmind:item = "pasta"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Grains"
+                custom string fleetmind:shelf = "C2"
+                rel material:binding = </World/Looks/shelf_C>
+                color3f[] primvars:displayColor = [(0.95, 0.8, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (3.5, -6.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "C3" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 4)
+                custom string fleetmind:item = "flour"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Grains"
+                custom string fleetmind:shelf = "C3"
+                rel material:binding = </World/Looks/shelf_C>
+                color3f[] primvars:displayColor = [(0.95, 0.8, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (4.5, -6.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "C4" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 5)
+                custom string fleetmind:item = "oats"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Grains"
+                custom string fleetmind:shelf = "C4"
+                rel material:binding = </World/Looks/shelf_C>
+                color3f[] primvars:displayColor = [(0.95, 0.8, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (5.5, -6.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "C5" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 6)
+                custom string fleetmind:item = "lentils"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Grains"
+                custom string fleetmind:shelf = "C5"
+                rel material:binding = </World/Looks/shelf_C>
+                color3f[] primvars:displayColor = [(0.95, 0.8, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (6.5, -6.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "G1" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 9)
+                custom string fleetmind:item = "bread"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Bakery"
+                custom string fleetmind:shelf = "G1"
+                rel material:binding = </World/Looks/shelf_G>
+                color3f[] primvars:displayColor = [(0.8, 0.75, 0.55)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (9.5, -6.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "G2" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 10)
+                custom string fleetmind:item = "croissants"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Bakery"
+                custom string fleetmind:shelf = "G2"
+                rel material:binding = </World/Looks/shelf_G>
+                color3f[] primvars:displayColor = [(0.8, 0.75, 0.55)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (10.5, -6.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "G3" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 11)
+                custom string fleetmind:item = "bagels"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Bakery"
+                custom string fleetmind:shelf = "G3"
+                rel material:binding = </World/Looks/shelf_G>
+                color3f[] primvars:displayColor = [(0.8, 0.75, 0.55)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (11.5, -6.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "G4" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 12)
+                custom string fleetmind:item = "muffins"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Bakery"
+                custom string fleetmind:shelf = "G4"
+                rel material:binding = </World/Looks/shelf_G>
+                color3f[] primvars:displayColor = [(0.8, 0.75, 0.55)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (12.5, -6.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "G5" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 13)
+                custom string fleetmind:item = "cake"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Bakery"
+                custom string fleetmind:shelf = "G5"
+                rel material:binding = </World/Looks/shelf_G>
+                color3f[] primvars:displayColor = [(0.8, 0.75, 0.55)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (13.5, -6.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "D1" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 2)
+                custom string fleetmind:item = "milk"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Dairy"
+                custom string fleetmind:shelf = "D1"
+                rel material:binding = </World/Looks/shelf_D>
+                color3f[] primvars:displayColor = [(0.8, 0.65, 0.9)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (2.5, -8.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "D2" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 3)
+                custom string fleetmind:item = "cheese"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Dairy"
+                custom string fleetmind:shelf = "D2"
+                rel material:binding = </World/Looks/shelf_D>
+                color3f[] primvars:displayColor = [(0.8, 0.65, 0.9)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (3.5, -8.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "D3" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 4)
+                custom string fleetmind:item = "yogurt"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Dairy"
+                custom string fleetmind:shelf = "D3"
+                rel material:binding = </World/Looks/shelf_D>
+                color3f[] primvars:displayColor = [(0.8, 0.65, 0.9)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (4.5, -8.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "D4" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 5)
+                custom string fleetmind:item = "butter"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Dairy"
+                custom string fleetmind:shelf = "D4"
+                rel material:binding = </World/Looks/shelf_D>
+                color3f[] primvars:displayColor = [(0.8, 0.65, 0.9)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (5.5, -8.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "D5" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 6)
+                custom string fleetmind:item = "cream"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Dairy"
+                custom string fleetmind:shelf = "D5"
+                rel material:binding = </World/Looks/shelf_D>
+                color3f[] primvars:displayColor = [(0.8, 0.65, 0.9)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (6.5, -8.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "H1" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 9)
+                custom string fleetmind:item = "soap"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Household"
+                custom string fleetmind:shelf = "H1"
+                rel material:binding = </World/Looks/shelf_H>
+                color3f[] primvars:displayColor = [(0.7, 0.7, 0.7)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (9.5, -8.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "H2" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 10)
+                custom string fleetmind:item = "shampoo"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Household"
+                custom string fleetmind:shelf = "H2"
+                rel material:binding = </World/Looks/shelf_H>
+                color3f[] primvars:displayColor = [(0.7, 0.7, 0.7)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (10.5, -8.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "H3" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 11)
+                custom string fleetmind:item = "toothpaste"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Household"
+                custom string fleetmind:shelf = "H3"
+                rel material:binding = </World/Looks/shelf_H>
+                color3f[] primvars:displayColor = [(0.7, 0.7, 0.7)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (11.5, -8.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "H4" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 12)
+                custom string fleetmind:item = "tissues"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Household"
+                custom string fleetmind:shelf = "H4"
+                rel material:binding = </World/Looks/shelf_H>
+                color3f[] primvars:displayColor = [(0.7, 0.7, 0.7)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (12.5, -8.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "H5" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (8, 13)
+                custom string fleetmind:item = "detergent"
+                custom string fleetmind:kind = "shelf"
+                custom string fleetmind:row_name = "Household"
+                custom string fleetmind:shelf = "H5"
+                rel material:binding = </World/Looks/shelf_H>
+                color3f[] primvars:displayColor = [(0.7, 0.7, 0.7)]
+                double size = 1
+                float3 xformOp:scale = (0.8, 0.8, 1.8)
+                double3 xformOp:translate = (13.5, -8.5, 0.9)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def "Packing"
+        {
+            def Cube "r5_c15" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (5, 15)
+                custom string fleetmind:kind = "packing"
+                rel material:binding = </World/Looks/packing>
+                color3f[] primvars:displayColor = [(0.55, 0.35, 0.8)]
+                double size = 1
+                float3 xformOp:scale = (0.9, 0.9, 0.02)
+                double3 xformOp:translate = (15.5, -5.5, 0.01)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r5_c15_table" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/packing>
+                color3f[] primvars:displayColor = [(0.55, 0.35, 0.8)]
+                double size = 1
+                float3 xformOp:scale = (0.15, 0.9, 0.9)
+                double3 xformOp:translate = (15.92, -5.5, 0.45)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r6_c15" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (6, 15)
+                custom string fleetmind:kind = "packing"
+                rel material:binding = </World/Looks/packing>
+                color3f[] primvars:displayColor = [(0.55, 0.35, 0.8)]
+                double size = 1
+                float3 xformOp:scale = (0.9, 0.9, 0.02)
+                double3 xformOp:translate = (15.5, -6.5, 0.01)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r6_c15_table" (
+                prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/packing>
+                color3f[] primvars:displayColor = [(0.55, 0.35, 0.8)]
+                double size = 1
+                float3 xformOp:scale = (0.15, 0.9, 0.9)
+                double3 xformOp:translate = (15.92, -6.5, 0.45)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def "Docks"
+        {
+            def Cube "r11_c1" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (11, 1)
+                custom string fleetmind:kind = "dock"
+                rel material:binding = </World/Looks/dock>
+                color3f[] primvars:displayColor = [(0.35, 0.37, 0.4)]
+                double size = 1
+                float3 xformOp:scale = (0.95, 0.95, 0.02)
+                double3 xformOp:translate = (1.5, -11.5, 0.01)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r11_c2" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (11, 2)
+                custom string fleetmind:kind = "dock"
+                rel material:binding = </World/Looks/dock>
+                color3f[] primvars:displayColor = [(0.35, 0.37, 0.4)]
+                double size = 1
+                float3 xformOp:scale = (0.95, 0.95, 0.02)
+                double3 xformOp:translate = (2.5, -11.5, 0.01)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "r11_c3" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                custom int2 fleetmind:cell = (11, 3)
+                custom string fleetmind:kind = "dock"
+                rel material:binding = </World/Looks/dock>
+                color3f[] primvars:displayColor = [(0.35, 0.37, 0.4)]
+                double size = 1
+                float3 xformOp:scale = (0.95, 0.95, 0.02)
+                double3 xformOp:translate = (3.5, -11.5, 0.01)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+    }
+
+    def "Looks"
+    {
+        def Material "floor"
+        {
+            token outputs:surface.connect = </World/Looks/floor/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.82, 0.83, 0.85)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "wall"
+        {
+            token outputs:surface.connect = </World/Looks/wall/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.45, 0.47, 0.5)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "charger"
+        {
+            token outputs:surface.connect = </World/Looks/charger/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.95, 0.75, 0.1)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "shelf_A"
+        {
+            token outputs:surface.connect = </World/Looks/shelf_A/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.55, 0.65, 0.9)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "shelf_E"
+        {
+            token outputs:surface.connect = </World/Looks/shelf_E/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.95, 0.6, 0.6)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "shelf_B"
+        {
+            token outputs:surface.connect = </World/Looks/shelf_B/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.55, 0.8, 0.6)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "shelf_F"
+        {
+            token outputs:surface.connect = </World/Looks/shelf_F/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.55, 0.8, 0.85)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "packing"
+        {
+            token outputs:surface.connect = </World/Looks/packing/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.55, 0.35, 0.8)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "shelf_C"
+        {
+            token outputs:surface.connect = </World/Looks/shelf_C/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.95, 0.8, 0.5)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "shelf_G"
+        {
+            token outputs:surface.connect = </World/Looks/shelf_G/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.8, 0.75, 0.55)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "shelf_D"
+        {
+            token outputs:surface.connect = </World/Looks/shelf_D/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.8, 0.65, 0.9)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "shelf_H"
+        {
+            token outputs:surface.connect = </World/Looks/shelf_H/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.7, 0.7, 0.7)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "dock"
+        {
+            token outputs:surface.connect = </World/Looks/dock/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.35, 0.37, 0.4)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+
+        def Material "robot"
+        {
+            token outputs:surface.connect = </World/Looks/robot/Shader.outputs:surface>
+
+            def Shader "Shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.18, 0.44, 0.87)
+                float inputs:roughness = 0.7
+                token outputs:surface
+            }
+        }
+    }
+
+    def "Robots"
+    {
+        def Xform "R1"
+        {
+            custom int2 fleetmind:cell = (10, 4)
+            custom string fleetmind:kind = "robot"
+            custom string fleetmind:robot_id = "R1"
+            double3 xformOp:translate = (4.5, -10.5, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            def Cube "Body" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/robot>
+                color3f[] primvars:displayColor = [(0.18, 0.44, 0.87)]
+                double size = 1
+                float3 xformOp:scale = (0.6, 0.5, 0.3)
+                double3 xformOp:translate = (0, 0, 0.2)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Front" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (0.1, 0.3, 0.08)
+                double3 xformOp:translate = (0.25, 0, 0.38999999999999996)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def Xform "R2"
+        {
+            custom int2 fleetmind:cell = (10, 6)
+            custom string fleetmind:kind = "robot"
+            custom string fleetmind:robot_id = "R2"
+            double3 xformOp:translate = (6.5, -10.5, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            def Cube "Body" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/robot>
+                color3f[] primvars:displayColor = [(0.18, 0.44, 0.87)]
+                double size = 1
+                float3 xformOp:scale = (0.6, 0.5, 0.3)
+                double3 xformOp:translate = (0, 0, 0.2)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Front" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (0.1, 0.3, 0.08)
+                double3 xformOp:translate = (0.25, 0, 0.38999999999999996)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def Xform "R3"
+        {
+            custom int2 fleetmind:cell = (10, 8)
+            custom string fleetmind:kind = "robot"
+            custom string fleetmind:robot_id = "R3"
+            double3 xformOp:translate = (8.5, -10.5, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            def Cube "Body" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/robot>
+                color3f[] primvars:displayColor = [(0.18, 0.44, 0.87)]
+                double size = 1
+                float3 xformOp:scale = (0.6, 0.5, 0.3)
+                double3 xformOp:translate = (0, 0, 0.2)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Front" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (0.1, 0.3, 0.08)
+                double3 xformOp:translate = (0.25, 0, 0.38999999999999996)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def Xform "R4"
+        {
+            custom int2 fleetmind:cell = (10, 10)
+            custom string fleetmind:kind = "robot"
+            custom string fleetmind:robot_id = "R4"
+            double3 xformOp:translate = (10.5, -10.5, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            def Cube "Body" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/robot>
+                color3f[] primvars:displayColor = [(0.18, 0.44, 0.87)]
+                double size = 1
+                float3 xformOp:scale = (0.6, 0.5, 0.3)
+                double3 xformOp:translate = (0, 0, 0.2)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Front" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (0.1, 0.3, 0.08)
+                double3 xformOp:translate = (0.25, 0, 0.38999999999999996)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+
+        def Xform "R5"
+        {
+            custom int2 fleetmind:cell = (10, 12)
+            custom string fleetmind:kind = "robot"
+            custom string fleetmind:robot_id = "R5"
+            double3 xformOp:translate = (12.5, -10.5, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+
+            def Cube "Body" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/robot>
+                color3f[] primvars:displayColor = [(0.18, 0.44, 0.87)]
+                double size = 1
+                float3 xformOp:scale = (0.6, 0.5, 0.3)
+                double3 xformOp:translate = (0, 0, 0.2)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+
+            def Cube "Front" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                rel material:binding = </World/Looks/wall>
+                color3f[] primvars:displayColor = [(0.45, 0.47, 0.5)]
+                double size = 1
+                float3 xformOp:scale = (0.1, 0.3, 0.08)
+                double3 xformOp:translate = (0.25, 0, 0.38999999999999996)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            }
+        }
+    }
+}
+

@@ -99,7 +99,7 @@ If I make a mistake in the file, it tells me clearly what is wrong. It checks th
 - robots start on a free cell they can drive on, and no two robots start in the same place
 
 ### 5. Wrote tests
-I have **309 tests** in the `tests/` folder. They check the rules, for example:
+I have **320 tests** in the `tests/` folder. They check the rules, for example:
 
 - a robot cannot drive into a wall, a shelf, a blocked cell or another robot
 - moving uses battery, and a robot with no battery cannot move
@@ -377,6 +377,17 @@ Realistic Friday (159 orders):
 | 4 | **00:49** (before: stopped at 23:00 with orders left) | 159 / 159 |
 | 3 | **04:22** | 159 / 159 |
 
+### 18. Getting ready for Isaac Sim
+Isaac Sim (NVIDIA's robot simulator) shows the warehouse in 3D with real physics. The fleet manager does not change: in Isaac Sim the robots are bodies in a 3D world, and they speak the same VDA 5050 messages over MQTT. Everything is explained in [isaac/README.md](isaac/README.md).
+
+- **The 3D world** (`isaac/world.py`): the layout file becomes a USD world (the file format of Isaac Sim): 1 cell = 1 metre, 56 walls, 40 shelves that know their item, chargers, packing stations, docks, lights, a physics scene and 5 robots. It is made with Pixar's `usd-core`, so it does not need Isaac Sim or a GPU.
+- **The robots in the world** (`isaac/bridge.py`): a robot does its tick exactly as before, then its body drives to the next cell (turning to face the way it goes), and only when it has arrived does it report, with the position the simulator **measured**. If something pushes it into another cell, it reports that, and the manager believes it.
+- **Starting Isaac Sim** (`isaac/run_isaac.py`): opens the world and runs the bridge every frame. `--no-isaac` runs the same bridge without Isaac Sim, so the whole chain (website, manager, MQTT, robots in the world) runs on my laptop too.
+
+**Tests:** robots in the world give exactly the same run (80 ticks, 0 state mismatches), every body ends in its robot's cell, a driving robot faces the way it drives, and a pushed robot is believed.
+
+**What I can't do on my laptop:** it has Intel graphics, and Isaac Sim needs an NVIDIA RTX GPU. So the last step, running `isaac/run_isaac.py` in Isaac Sim itself, needs a cloud GPU machine (NVIDIA Brev or AWS) or a PC with an RTX card.
+
 ---
 
 ## The rules of the warehouse
@@ -458,6 +469,9 @@ Breakdowns, dropped items and battery swaps are made up by the simulation, so th
 
 **A day ends when the last order is delivered, not at a fixed time.**
 A real warehouse doesn't send customers' orders home undelivered at 23:00. The safety stop at 06:00 the next morning is only there so a broken day can't run forever.
+
+**The robot bodies move by setting their position, not with physics yet.**
+That uses only plain USD, so the same code runs in Isaac Sim and in my tests without a GPU. A real wheeled robot (with wheels, a controller and a lidar) is the next step once Isaac Sim runs.
 
 **Tests use an in-memory broker.**
 It has the same interface as the real one, so 55 tests run in seconds without Docker. Two more tests use the real Mosquitto, and are skipped when it is not running.
@@ -543,6 +557,15 @@ python -m scripts.robot_agent R5                  # terminal 3: press Ctrl+C (go
 Only run one fleet on a broker at a time: every robot connects with its own id (R1, R2, ...), and a second R1 throws the first one out.
 `docker compose down` stops the broker.
 
+### Build the 3D world for Isaac Sim
+
+```powershell
+python -m isaac.world                        # writes isaac/warehouse.usda
+python isaac/run_isaac.py --no-isaac         # robots in the 3D world, without Isaac Sim (with the website: --mqtt external --state-timeout 3)
+```
+
+To run it in Isaac Sim itself (needs an NVIDIA RTX GPU), follow [isaac/README.md](isaac/README.md).
+
 ### Make the order history and test the forecast
 
 ```powershell
@@ -620,6 +643,11 @@ fleetmind/
 │   ├── fleet_link.py         # the manager over MQTT: orders out, states in, lost robots
 │   ├── talk.py               # the message story: what they say to each other, and why
 │   └── record_tests.py       # records the tests for the test viewer
+├── isaac/
+│   ├── world.py              # the warehouse as a 3D USD world for Isaac Sim
+│   ├── bridge.py             # robots whose bodies are in the 3D world
+│   ├── run_isaac.py          # starts Isaac Sim with the world and the robots
+│   └── README.md             # how to run it on a GPU machine
 ├── web/
 │   ├── session.py            # LiveSession: one running simulation, its commands and messages
 │   ├── server.py             # FastAPI server: the page, the WebSocket and the background ticker
@@ -643,6 +671,7 @@ fleetmind/
 │   ├── test_messages.py      # VDA 5050 messages and the in-memory broker
 │   ├── test_fleet_link.py    # robots and manager over messages, lost and found robots
 │   ├── test_mqtt_broker.py   # the same over a real Mosquitto (skipped without it)
+│   ├── test_isaac_world.py   # the 3D world and the robots in it (no GPU needed)
 │   └── conftest.py           # records tests for the test viewer (only when asked)
 ├── viewer/
 │   ├── draw.js               # drawing code shared by the replay viewer and the live website

@@ -104,11 +104,12 @@ def make_broker(mqtt, broker="127.0.0.1:1883"):
     return MqttBroker(host, int(port or 1883)), broker
 
 
-def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0.1:1883"):
+def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0.1:1883", state_timeout=0.5):
     """Build a fresh app with its own session (tests use this to start clean)."""
     bus, name = make_broker(mqtt, broker)
     robots = "external" if mqtt == "external" else "inproc"
-    hub = Hub(LiveSession(str(layout_path), scenario=scenario, broker=bus, robots=robots, broker_name=name))
+    hub = Hub(LiveSession(str(layout_path), scenario=scenario, broker=bus, robots=robots, broker_name=name,
+                          link_options={"state_timeout": state_timeout}))
 
     @asynccontextmanager
     async def lifespan(app):
@@ -168,8 +169,11 @@ def main():
                              "external: robots run in python -m scripts.robot_agent; memory: no broker needed")
     parser.add_argument("--broker", default="127.0.0.1:1883", help="host:port of the MQTT broker")
     parser.add_argument("--scenario", default="normal")
+    parser.add_argument("--state-timeout", type=float, default=0.5,
+                        help="seconds to wait for the robots' states each tick (Isaac Sim robots drive "
+                             "for a moment before they answer: use 3)")
     args = parser.parse_args()
-    app = create_app(scenario=args.scenario, mqtt=args.mqtt, broker=args.broker)
+    app = create_app(scenario=args.scenario, mqtt=args.mqtt, broker=args.broker, state_timeout=args.state_timeout)
 
     url = f"http://127.0.0.1:{args.port}"
     mode = f"over MQTT ({args.mqtt}, broker {args.broker})" if args.mqtt else "local"
