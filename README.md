@@ -48,7 +48,8 @@ This connects to my Master's thesis, which was about giving resources to tasks w
 - **Ready for Isaac Sim:** the warehouse as a 3D USD world, and robots whose bodies live in it, using the same messages.
 - **Tools for an AI agent:** an MCP server with 8 tools on the live warehouse, with clear errors and risky tools marked.
 - **Restocking:** people the robots must find and tell each other about, or restocking robots that book their way.
-- **367 tests**, and every result compared over many seeds.
+- **A public demo mode and a container:** one shared warehouse anyone can open, without any tools, AI or keys.
+- **374 tests**, and every result compared over many seeds.
 
 **Some results:**
 
@@ -142,7 +143,7 @@ If I make a mistake in the file, it tells me clearly what is wrong. It checks th
 - robots start on a free cell they can drive on, and no two robots start in the same place
 
 ### 5. Wrote tests
-I have **367 tests** in the `tests/` folder. They check the rules, for example:
+I have **374 tests** in the `tests/` folder. They check the rules, for example:
 
 - a robot cannot drive into a wall, a shelf, a blocked cell or another robot
 - moving uses battery, and a robot with no battery cannot move
@@ -168,6 +169,7 @@ I have **367 tests** in the `tests/` folder. They check the rules, for example:
 - a paused robot stays put, nobody drives into a closed aisle, a created order gets delivered
 - a new random day is different, and Reset repeats it
 - robots can't drive into a person, a sighting reroutes the other robots, an old spot is cleared
+- the public demo has no tools (404), limits clicks and speed, and runs by itself
 
 ### 6. Charging, breakdowns and repairs
 - A robot can **charge** when it stands on a charger. It gets 5% per tick and stops at 100%.
@@ -502,6 +504,19 @@ Every day goods arrive at the loading docks and must go onto the shelves. Two pe
 - The real cause: a robot **chose a new pick spot** whenever a known person stood on its spot. With badges the robots know every step of every person, so a person walking past a pick spot made the robot switch spots again and again. Now only a person who is **standing** makes a robot pick from another side. Badges went from 52.4 to 46.5 ticks over 30 seeds.
 - And with 30 seeds instead of 10, most of the remaining "differences" disappeared into the noise. The lesson: show the +/-, and use enough seeds before believing a difference.
 
+### 22. A public demo anyone can open
+The goal: anyone opens a link and sees the warehouse working, in 2D and 3D. But they only **see my work**: they can't use my tools, my AI or my keys.
+
+`python -m web.server --public` (and the `Dockerfile`, which runs exactly that):
+- **One shared warehouse.** Everyone who opens the link sees the same day and can press Start, Pause, pick a scenario or start a random day. A banner says it is a public demo, with a link to this repository.
+- **No tools, no AI, no keys.** The MCP server (`/mcp`) is not there at all in public mode (it answers 404), the API docs are hidden, and nothing in public mode reads an API key. The container runs as a normal user and never contains `.env` files.
+- **Limits:** at most 100 open tabs, 3 commands per second per tab ("Slow down a little"), speed at most 30 ticks per second.
+- **It runs by itself:** it starts with Realistic Friday, and when a day is over the summary shows for 15 seconds, then a new random day starts. While nobody is watching, nothing is computed, so it costs almost nothing.
+- **Tested:** `/mcp` gives 404, the demo starts by itself, the click limit and the speed cap work, and the normal website still has its tools.
+- **Checked in the container:** `docker build` and `docker run`, then a visitor's connection: the banner is on, the day runs by itself, speed 60 becomes 30, `/mcp` is 404.
+
+The robots in the demo still talk VDA 5050 messages, over the in-memory bus, because most free hosts allow only one container (no separate broker).
+
 ### How much can I trust this simulator?
 Real robots fail in many more ways than my simulation has, so I don't use it to predict exact numbers. I use it to compare ideas and to test software.
 
@@ -713,6 +728,16 @@ python -m scripts.mcp_try list
 python -m scripts.mcp_try call close_aisle aisle=BC "reason=a box fell"
 ```
 
+### Run the public demo
+
+```powershell
+python -m web.server --public --mqtt memory          # the public demo on your computer
+docker build -t fleetmind-demo .                      # or as a container
+docker run --rm -p 8000:8000 fleetmind-demo           # then open http://127.0.0.1:8000
+```
+
+To put it online, any host that runs a Docker image works, e.g. Hugging Face Spaces (Docker), Google Cloud Run or Fly.io. The host sets `PORT`; the container reads it. Set a budget alert first.
+
 ### Compare restocking by people and by robots
 
 ```powershell
@@ -832,6 +857,7 @@ fleetmind/
 │   ├── test_isaac_world.py   # the 3D world and the robots in it (no GPU needed)
 │   ├── test_mcp_tools.py     # every MCP tool through a real MCP client
 │   ├── test_restock.py       # people block robots, sightings reroute, stale spots, same run over MQTT
+│   ├── test_public.py        # the public demo: no tools, limits, runs by itself
 │   └── conftest.py           # records tests for the test viewer (only when asked)
 ├── viewer/
 │   ├── draw.js               # drawing code shared by the replay viewer and the live website
@@ -840,6 +866,7 @@ fleetmind/
 ├── mosquitto/
 │   └── mosquitto.conf        # the MQTT broker's settings
 ├── docker-compose.yml        # starts Mosquitto
+├── Dockerfile                # the public demo as one container
 ├── requirements.txt
 └── README.md
 ```
@@ -851,7 +878,7 @@ fleetmind/
 1. **The AI agent (Claude):** a planner, then an executor that calls the MCP tools, then a critic that checks the result and plans again if needed. It remembers what it did during a task, and has limits on steps and tool failures. Test: "Prepare for a big delivery at 2 pm."
 2. **Incidents and approval:** the fleet manager calls the agent when it can't solve something itself (a blocked aisle, several breakdowns). Before a risky action (closing an aisle, delaying orders) the agent asks, and a person clicks Approve or Reject on the website.
 3. **Eyes:** simulated camera images of an incident for a vision model, and a small classifier for damaged boxes.
-4. **Production:** an evaluation suite of incident scenarios, Docker for everything, tests on every push (GitHub Actions), and a public demo.
+4. **Production:** put the public demo online (the container is ready), an evaluation suite of incident scenarios, and tests on every push (GitHub Actions). The AI agent stays OFF in the public demo, so nobody can use my API key.
 5. **Isaac Sim on a GPU machine:** run `isaac/run_isaac.py` in Isaac Sim, then a real wheeled robot model with a lidar.
 
 ---

@@ -1,0 +1,11 @@
+# keep the image small and never copy secrets into it
+.git
+.venv
+.claude
+.env
+.env.*
+**/__pycache__
+**/*.pyc
+.pytest_cache
+logs
+viewer/test_recordings.js

@@ -130,9 +130,14 @@
     opacity: 0; transition: opacity .2s; pointer-events: none;
   }
   #toast.show { opacity: 1; }
+  #public-banner { display: none; background: #1d2330; color: #fff; font-size: 13px; padding: 7px 16px; text-align: center; }
+  #public-banner a { color: #9cc0ff; }
 </style>
 </head>
 <body>
+<div id="public-banner">Public demo of <b>FleetMind</b>, a warehouse robot fleet with a central brain.
+  You share this warehouse with everyone watching: press Start, pick a scenario or a random day.
+  <a href="https://github.com/chikileepraneeth-oss/fleetmind" target="_blank" rel="noopener">Code and results on GitHub</a></div>
 
 <header>
   <h1>FleetMind <span>live</span></h1>
@@ -267,6 +272,7 @@
   let day = null;             // realistic day: {date, open, close, latest_end}, else null
 
   function onHello(msg) {
+    document.getElementById("public-banner").style.display = msg.public ? "block" : "none";
     day = msg.day;
     layout = msg.layout;
     prev = cur = null;

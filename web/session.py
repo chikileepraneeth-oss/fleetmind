@@ -66,6 +66,7 @@ class LiveSession:
         self.link_options = link_options or {}
         self.agents = {}               # robot id -> RobotAgent (only robots="inproc")
         self.link = None
+        self.public = False            # the public demo (set by web/server.py): the page shows a banner
         self.load_scenario(scenario)
 
     # ------------------------------------------------------------------
@@ -209,6 +210,7 @@ class LiveSession:
             "events": [list(e) for e in self.sim.events[-RECENT_EVENTS:]],
             "day": self.day_info(),
             "transport": self.transport_info(),
+            "public": self.public,
         }
 
     def transport_info(self):
