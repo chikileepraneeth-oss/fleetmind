@@ -262,7 +262,7 @@
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(command));
   }
 
-  let day = null;             // realistic day: {date, open, close, end, end_tick}, else null
+  let day = null;             // realistic day: {date, open, close, latest_end}, else null
 
   function onHello(msg) {
     day = msg.day;
@@ -371,7 +371,11 @@
   }
 
   function taskLabel(r) {
-    if (r.task === "lost") return r.seen == null ? "Lost (never answered)" : `Lost (silent ${r.seen.toFixed(0)} s)`;
+    if (r.task === "lost") {
+      if (r.seen == null) return "Lost (never answered)";
+      const silent = r.seen < 60 ? `${r.seen.toFixed(0)} s` : `${Math.floor(r.seen / 60)} min`;
+      return `Lost (silent ${silent}) · start its robot program to bring it back`;
+    }
     return r.status === "error" ? `Broken (${r.repair} left)` : TASK_LABEL[r.task] || r.task;
   }
 
@@ -426,7 +430,10 @@
     const k = cur.kpis;
     if (cur.finished) {
       $("sign-title").textContent = "Closed for the day";
-      $("sign-when").textContent = `${day.date} · orders stopped at ${day.close}, robots finished at ${day.end}`;
+      const notDone = k.orders_waiting + k.orders_in_progress;
+      $("sign-when").textContent = notDone
+        ? `${day.date} · orders stopped at ${day.close} · stopped at ${cur.clock} with work left over`
+        : `${day.date} · orders stopped at ${day.close} · last order delivered at ${cur.clock}`;
       $("sign-facts").innerHTML = [
         [k.orders_delivered, "delivered"], [k.late_orders, "late"],
         [k.orders_waiting + k.orders_in_progress, "not done"],

@@ -132,27 +132,52 @@ def test_realistic_day_has_a_clock_and_a_date():
     s = LiveSession(LAYOUT, scenario="realistic_friday")
     hello = s.hello_message()
     assert hello["day"]["date"] == "Friday 02 October 2026"
-    assert hello["day"]["open"] == "06:00" and hello["day"]["end"] == "23:00"
+    assert hello["day"]["open"] == "06:00" and hello["day"]["close"] == "22:00"
     assert s.state_message()["clock"] == "06:00"
     for _ in range(90):
         s.step()
     assert s.state_message()["clock"] == "07:30"
 
 
-def test_realistic_day_stops_by_itself_at_closing_time():
+def test_realistic_day_closes_when_the_last_order_is_delivered():
+    """No new orders after 22:00, but every order of the day is still delivered before closing."""
     s = LiveSession(LAYOUT, scenario="realistic_friday")
     s.start()
-    for _ in range(s.day_end + 50):              # try to run past the end
+    while s.running:
         s.step()
     msg = s.state_message()
-    assert s.sim.tick == 1020 and msg["clock"] == "23:00"
     assert msg["finished"] is True and msg["running"] is False
+    assert s.sim.tick >= 960                                 # never before 22:00
+    assert s.sim.open_orders() == 0                          # every order of the day is done
+    assert max(o.created_at for o in s.sim.orders) < 960   # no orders after 22:00
+    assert msg["clock"] == "22:24"                           # this Friday: the last delivery
     with pytest.raises(ValueError, match="Reset"):
         s.handle({"type": "start"})
     with pytest.raises(ValueError, match="Reset"):
         s.handle({"type": "step"})
     s.handle({"type": "reset"})                  # reset opens the day again
     assert s.sim.tick == 0 and s.state_message()["finished"] is False
+
+
+def test_a_busy_day_stays_open_until_the_work_is_done():
+    """With 4 robots instead of 5, the last order is delivered at 00:49: the day stays open until then."""
+    sim = build_simulation("realistic_friday", LAYOUT)
+    for robot_id in sorted(sim.warehouse.robots)[4:]:
+        robot = sim.warehouse.robots.pop(robot_id)
+        del sim.warehouse.occupied[robot.position]
+    while not sim.day_over():
+        sim.step()
+    assert sim.tick == 1129 and sim.open_orders() == 0          # 00:49
+
+
+def test_a_day_that_cannot_finish_stops_the_next_morning():
+    from scripts.simulation import LATEST_END_TICK
+    sim = build_simulation("realistic_friday", LAYOUT)
+    for robot_id in sorted(sim.warehouse.robots):
+        sim.mark_lost(robot_id)                  # nobody can work
+    while not sim.day_over():
+        sim.step()
+    assert sim.tick == LATEST_END_TICK and sim.open_orders() > 0
 
 
 def test_other_scenarios_run_forever_without_a_clock():

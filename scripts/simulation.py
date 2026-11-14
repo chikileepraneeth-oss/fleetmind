@@ -26,7 +26,10 @@ from scripts.classes import (
     FLOOR, CHARGER, PACKING, DIRECTIONS,
 )
 from scripts.orders import OrderGenerator
-from scripts.demand import DemandModel
+from scripts.demand import DemandModel, OPEN_HOUR, CLOSE_HOUR
+
+LAST_ORDER_TICK = (CLOSE_HOUR - OPEN_HOUR) * 60   # 22:00: no new orders after this (1 tick = 1 minute)
+LATEST_END_TICK = 24 * 60                          # 06:00 the next morning: the day stops even if work is left
 from scripts.movement import greedy_step, nearest, astar, direction_to, distance_table
 from scripts import assignment
 from scripts.traffic import ReservationTable, cooperative_astar, find_wait_cycles
@@ -944,6 +947,28 @@ class Simulation:
     # ------------------------------------------------------------------
     # KPIs
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # The end of a working day (realistic demand only)
+    # ------------------------------------------------------------------
+
+    def open_orders(self):
+        """Orders that still have to be delivered (failed orders can't be done, so they don't count)."""
+        return sum(1 for o in self.orders
+                   if o.status in (OrderStatus.WAITING, OrderStatus.ASSIGNED, OrderStatus.PICKED_UP))
+
+    def day_over(self):
+        """
+        A realistic day ends when the last order is delivered: no new orders come
+        after 22:00, but every order of the day is still done. Only if the robots
+        can't finish by 06:00 the next morning (e.g. every robot is lost) does it stop anyway.
+        Other scenarios have no end.
+        """
+        if self.config.demand != "realistic":
+            return False
+        if self.tick >= LATEST_END_TICK:
+            return True
+        return self.tick >= LAST_ORDER_TICK and self.open_orders() == 0
 
     def kpis(self):
         delivered = [o for o in self.orders if o.status == OrderStatus.DELIVERED]

@@ -80,8 +80,8 @@ def hour_of(minute):
 
 
 def clock(minute):
-    """'06:00' for minute 0, '17:30' for minute 690, ..."""
-    return f"{OPEN_HOUR + minute // 60:02d}:{minute % 60:02d}"
+    """'06:00' for minute 0, '17:30' for minute 690, '00:15' after midnight, ..."""
+    return f"{(OPEN_HOUR + minute // 60) % 24:02d}:{minute % 60:02d}"
 
 
 class DemandModel:

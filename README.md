@@ -99,7 +99,7 @@ If I make a mistake in the file, it tells me clearly what is wrong. It checks th
 - robots start on a free cell they can drive on, and no two robots start in the same place
 
 ### 5. Wrote tests
-I have **306 tests** in the `tests/` folder. They check the rules, for example:
+I have **309 tests** in the `tests/` folder. They check the rules, for example:
 
 - a robot cannot drive into a wall, a shelf, a blocked cell or another robot
 - moving uses battery, and a robot with no battery cannot move
@@ -152,7 +152,7 @@ Now every robot uses **A\*** (A-star). It plans the whole route from start to en
 ### 9. I can see everything in my browser
 I built two viewers that open in the browser:
 
-- **Replay viewer** (`viewer/index.html`): plays back a whole day in the warehouse. I can pause, jump to any tick, follow one robot, and see its planned route, battery and what it carries. There are 13 scenarios, like a realistic Friday, rush hour, breakdown day, blocked aisles, low battery, single robot and a 20-robot stress test, plus "old version" scenarios to compare with earlier versions.
+- **Replay viewer** (`viewer/index.html`): plays back a whole day in the warehouse. I can pause, jump to any tick, follow one robot, and see its planned route, battery and what it carries. There are 14 scenarios, like a realistic Friday, rush hour, breakdown day, blocked aisles, low battery, single robot and a 20-robot stress test, plus "old version" scenarios to compare with earlier versions.
 - **Test viewer** (`viewer/tests.html`): shows every test step by step on a small map, next to the test code.
 
 ### 10. Smarter assignment and charging
@@ -201,7 +201,7 @@ The replay viewer only plays a run that was recorded before. Now the simulation 
 - **Same seed, same run:** the server only calls `sim.step()`, so a live run is exactly the same as a recorded one. A test checks this over the WebSocket.
 - The website did not change the simulation: the server only drives it from outside. The drawing code is now shared in `viewer/draw.js`, so the live page and the replay viewer look the same.
 - The logic (`web/session.py`) is kept apart from the web code (`web/server.py`), so most of it can be tested without a server or a browser.
-- **A real working day:** scenarios with realistic demand show the **clock** (1 tick = 1 minute from 06:00) and the date. The day starts behind a closed **roller shutter** that rolls up when I press Start. Orders stop at 22:00, the robots finish their work until 23:00, then the simulation stops by itself, the shutter rolls down and shows the day's summary (delivered, late, not done, on time). Reset opens the day again. Other scenarios run forever. The replay viewer shows the clock too.
+- **A real working day:** scenarios with realistic demand show the **clock** (1 tick = 1 minute from 06:00) and the date. The day starts behind a closed **roller shutter** that rolls up when I press Start. Orders stop at 22:00, the robots finish every order of the day (see section 17), then the simulation stops by itself, the shutter rolls down and shows the day's summary (delivered, late, not done, on time). Reset opens the day again. Other scenarios run forever. The replay viewer shows the clock too.
 
 **The messages.** Every message is JSON with a `"type"`.
 
@@ -349,6 +349,34 @@ Until now the fleet manager moved the robots itself: one Python program changed 
 - The first version took about 90 ms per tick. VDA 5050 says to use QoS 0 for orders and states (QoS 1 only for `connection`), and QoS 0 is also much faster. I also turned off Nagle's algorithm, which holds back small messages.
 - The remaining ~46 ms come from Docker Desktop on Windows: it forwards the port from Windows into its Linux machine. Inside Docker's own network, the same message goes there and back in 0.8 ms.
 
+**Read the conversation as a story** (`python -m scripts.talk`): the scenario "Talking robots" has 2 robots with low batteries and breakdowns, so every kind of message happens early. The script listens to every message and, the first time each kind happens, prints it in plain words with the reason. On purpose, someone swaps R1's battery by hand, and R2's computer crashes and is switched on again. For example:
+
+```
+EXAMPLE 7: Picking the item  (tick 41)
+  Manager -> R1    ORDER      R1-3 (update 0): stay at (5, 4) and PICK item=flour orderId=O-0001 shelf=C3
+  Manager -> all robots   CLOCK      tick 41 has passed: do your tick and report
+  R1  -> Manager   STATE      I am at (5, 4), battery 54.5%, carrying flour
+  What the manager decided in this tick:
+    - R1: picked O-0001 flour from C3
+  WHY: The robot stands next to the right shelf. The manager sends a tiny order with one node
+       (right here) and a 'pick' action on it. The robot picks and reports the load.
+```
+
+The 12 examples: the robots start, a new job (the route), driving (release the next cell), a quiet tick (the heartbeat), start charging, stop charging, picking, delivering, the manager and the robot disagree, a breakdown, a robot disappears, the robot comes back. In 200 ticks that is 333 messages to the robots and 393 back.
+
+### 17. The day ends when the work is done
+Before, a realistic day always stopped at 23:00. On a quiet day the robots stood idle until then, and on a busy day orders that came before 22:00 were never delivered.
+
+Now: no new orders after 22:00, but **every order of the day is delivered before the warehouse closes** (`Simulation.day_over`). Only if the robots can't finish by 06:00 the next morning (for example every robot is lost) does the day stop anyway, so it never runs forever. The shutter says when the last order was delivered.
+
+Realistic Friday (159 orders):
+
+| Robots | The day closes at | Delivered |
+|---|---|---|
+| 5 | **22:24** (before: idle until 23:00) | 159 / 159 |
+| 4 | **00:49** (before: stopped at 23:00 with orders left) | 159 / 159 |
+| 3 | **04:22** | 159 / 159 |
+
 ---
 
 ## The rules of the warehouse
@@ -428,6 +456,9 @@ In a simulation all robots must do one tick together, so the manager sends `flee
 **Accidents are messages too.**
 Breakdowns, dropped items and battery swaps are made up by the simulation, so the manager tells the robot about them with instant actions that start with `sim` (`simBreakdown`, ...). In Isaac Sim, physics or staff would cause them, and these messages would go away.
 
+**A day ends when the last order is delivered, not at a fixed time.**
+A real warehouse doesn't send customers' orders home undelivered at 23:00. The safety stop at 06:00 the next morning is only there so a broken day can't run forever.
+
 **Tests use an in-memory broker.**
 It has the same interface as the real one, so 55 tests run in seconds without Docker. Two more tests use the real Mosquitto, and are skipped when it is not running.
 
@@ -492,6 +523,14 @@ python -m web.server --mqtt                            # the website; the 5 robo
 python -m scripts.fleet_link --broker 127.0.0.1:1883   # a whole scenario without the website
 python -m scripts.fleet_link                           # the same over the in-memory bus (no Docker needed)
 ```
+
+To read what the manager and the robots say to each other, and why:
+
+```powershell
+python -m scripts.talk            # add --json to see the real messages
+```
+
+To watch the raw messages of the running website: `docker exec fleetmind-mosquitto mosquitto_sub -t "#" -v`
 
 To kill a robot and watch it get lost, run the robots in their own programs:
 
@@ -579,6 +618,7 @@ fleetmind/
 │   ├── bus.py                # MQTT: an in-memory broker for tests and the real one (paho-mqtt)
 │   ├── robot_agent.py        # a robot that only follows messages and reports its state
 │   ├── fleet_link.py         # the manager over MQTT: orders out, states in, lost robots
+│   ├── talk.py               # the message story: what they say to each other, and why
 │   └── record_tests.py       # records the tests for the test viewer
 ├── web/
 │   ├── session.py            # LiveSession: one running simulation, its commands and messages

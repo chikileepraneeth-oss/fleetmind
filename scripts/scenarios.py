@@ -95,6 +95,16 @@ SCENARIOS = {
         "ticks": 1020,
         "config": {"demand": "realistic", "demand_seed": 7, "demand_day": 123},
     },
+    "talking_robots": {
+        "title": "Talking robots (MQTT story)",
+        "description": "2 robots, low batteries and breakdowns, so every kind of message happens early. "
+                       "Run python -m scripts.talk to read what they say to each other, and why.",
+        "seed": 42,
+        "ticks": 300,
+        "config": {"order_rate": 0.08, "breakdown_chance": 0.01, "drop_chance": 0, "block_chance": 0},
+        "robots": 2,
+        "start_battery": 30.0,
+    },
     "stress_20": {
         "title": "Stress test - 20 robots",
         "description": "20 robots and an order every 2 ticks. Watch the waiting zones, bookings and deadlock handling.",

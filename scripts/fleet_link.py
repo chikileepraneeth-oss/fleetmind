@@ -396,12 +396,15 @@ def main():
         agents = start_robots(broker, sorted(sim.warehouse.robots), args.layout, heartbeat=bool(args.broker))
     link = FleetLink(sim, broker, wait=3.0 if args.broker else 0.0)
 
+    realistic = sim.config.demand == "realistic" and not args.ticks
     ticks = args.ticks or SCENARIOS[args.scenario]["ticks"]
     began = time.perf_counter()
-    for t in range(ticks):
+    # a realistic day runs until its last order is delivered; otherwise a fixed number of ticks
+    while (not sim.day_over()) if realistic else sim.tick < ticks:
         link.step()
-        if (t + 1) % 100 == 0:
+        if sim.tick % 100 == 0:
             print(f"tick {sim.tick}: {sim.kpis()['orders_delivered']} delivered, lost: {sorted(sim.lost) or 'none'}")
+    ticks = sim.tick
     took = time.perf_counter() - began
 
     k = sim.kpis()

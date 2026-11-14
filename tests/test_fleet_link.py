@@ -319,6 +319,17 @@ def test_the_manager_believes_the_robot_when_they_disagree():
     assert abs(sim.warehouse.robots["R1"].battery - agents["R1"].battery) < 1e-9
 
 
+def test_the_talk_story_shows_every_kind_of_conversation(capsys):
+    """python -m scripts.talk: every example appears once, each with a reason."""
+    from scripts.talk import Story, WHY
+    Story("talking_robots", "R1", show_json=False).run(200, crash_at=120, back_after=15, tamper_at=60)
+    out = capsys.readouterr().out
+    assert out.count("WHY:") == len(WHY)
+    for text in ("CONNECTIONBROKEN", "initPosition", "PICK item=", "DROP orderId=", "startCharging",
+                 "simBreakdown", "state mismatch", "not allowed yet"):
+        assert text in out
+
+
 # ---------------------------------------------------------------------------
 # The live session over messages
 # ---------------------------------------------------------------------------

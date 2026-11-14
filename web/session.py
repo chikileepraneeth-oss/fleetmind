@@ -31,6 +31,7 @@ the robots and reads their states back. Robots that stop answering are "lost".
 from scripts.demand import clock, OPEN_HOUR, CLOSE_HOUR
 from scripts.record import build_simulation, layout_data, snapshot
 from scripts.scenarios import SCENARIOS
+from scripts.simulation import LATEST_END_TICK
 from scripts.fleet_link import FleetLink, start_robots
 
 DEFAULT_LAYOUT = "layouts/main_warehouse.json"
@@ -79,10 +80,10 @@ class LiveSession:
         if self.broker is not None:
             self._connect_fleet()
         self._events_sent = 0     # how many of sim.events the browsers have already received
-        # A realistic day (1 tick = 1 minute from 06:00) has an end: the scenario's last tick
-        # (orders stop at 22:00, the robots finish until then). Other scenarios run forever.
-        spec = SCENARIOS[key]
-        self.day_end = spec["ticks"] if spec["config"].get("demand") == "realistic" else None
+        # A realistic day (1 tick = 1 minute from 06:00) has an end: orders stop at 22:00,
+        # and the day closes when the last order is delivered (Simulation.day_over).
+        # Other scenarios run forever.
+        self.realistic = self.sim.config.demand == "realistic"
 
     def _connect_fleet(self):
         """Make sure every robot of this scenario has a running robot (inproc), then take control."""
@@ -108,8 +109,8 @@ class LiveSession:
 
     @property
     def finished(self):
-        """True when a realistic day is over (the warehouse is closed)."""
-        return self.day_end is not None and self.sim.tick >= self.day_end
+        """True when a realistic day is over: after 22:00 and every order delivered."""
+        return self.sim.day_over()
 
     def reset(self):
         """Back to tick 0 of the same scenario. Same seed, so the same run again."""
@@ -204,15 +205,14 @@ class LiveSession:
 
     def day_info(self):
         """For a realistic day: the date and opening hours (None for scenarios that run forever)."""
-        if self.day_end is None:
+        if not self.realistic:
             return None
         demand, cfg = self.sim.demand, self.sim.config
         return {
             "date": demand.date(cfg.demand_day).strftime("%A %d %B %Y"),   # e.g. Friday 02 October 2026
             "open": f"{OPEN_HOUR:02d}:00",
             "close": f"{CLOSE_HOUR:02d}:00",                                 # no new orders after this
-            "end": clock(self.day_end),                                      # the robots finish until this
-            "end_tick": self.day_end,
+            "latest_end": clock(LATEST_END_TICK),                            # stop anyway (work left over)
         }
 
     def state_message(self, new_events=True):
@@ -243,7 +243,7 @@ class LiveSession:
             "blocked": frame["blocked"],
             "queue": frame["queue"],
             "events": [list(e) for e in events],
-            "clock": clock(frame["tick"]) if self.day_end is not None else None,   # 1 tick = 1 minute from 06:00
+            "clock": clock(frame["tick"]) if self.realistic else None,   # 1 tick = 1 minute from 06:00
             "finished": self.finished,
             "kpis": self.kpis(frame["robots"]),
         }

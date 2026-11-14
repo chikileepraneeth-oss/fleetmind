@@ -58,7 +58,9 @@ def record_scenario(key, layout_path):
     warehouse = sim.warehouse
 
     frames = [snapshot(sim)]                  # tick 0: the starting state
-    for _ in range(spec["ticks"]):
+    realistic = sim.config.demand == "realistic"
+    # a realistic day runs until its last order is delivered; other scenarios for spec["ticks"]
+    while (not sim.day_over()) if realistic else sim.tick < spec["ticks"]:
         sim.step()
         frames.append(snapshot(sim))
 
@@ -67,7 +69,7 @@ def record_scenario(key, layout_path):
         "title": spec["title"],
         "description": spec["description"],
         "seed": spec["seed"],
-        "ticks": spec["ticks"],
+        "ticks": sim.tick,
         "config": {**SimConfig().__dict__, **spec["config"]},
         "layout": layout_data(warehouse),
         "frames": frames,
