@@ -21,6 +21,49 @@ This connects to my Master's thesis, which was about giving resources to tasks w
 
 ---
 
+## FleetMind at a glance
+
+```
+   browser (2D map, 3D view)           AI agent (next step)
+          |  WebSocket                        |  MCP tools: status, robots, orders,
+          v                                   v  pause, aisles, forecast
+   +--------------------------------------------------+
+   |  live website + MCP server   (web/)              |
+   |  fleet manager: the simulation's brain           |
+   |  assignment, A* routes with bookings, charging,  |
+   |  lost robots, restocking, forecast               |
+   +--------------------------------------------------+
+          |  VDA 5050 messages over MQTT (Mosquitto in Docker)
+          v
+   robots: simulated robot programs (scripts/robot_agent.py)
+           or robot bodies in the 3D world for Isaac Sim (isaac/)
+```
+
+**What is built:**
+- **A warehouse that runs by itself:** 40 shelves, chargers, packing stations, 5 robots (up to 20), orders, breakdowns, dropped items, blocked cells. The same seed always gives the same day, so versions can be compared fairly.
+- **A fleet brain:** smart order assignment, A* routes where robots book their cells (no collisions, deadlocks solved), opportunity charging, battery safety.
+- **Realistic demand and a forecast:** daily peaks and busy weekdays, real Walmart data (M5), and a LightGBM forecast that is 42% more accurate than "same as last week" on whole days.
+- **Robots that talk like real robots:** VDA 5050 messages over MQTT. The manager notices a robot that stops answering (lost), plans around it, and takes it back when it returns.
+- **A live website:** 2D map and a 3D view of the same warehouse, start/pause, random days, technicians who walk to broken robots, the reason for every blocked cell.
+- **Ready for Isaac Sim:** the warehouse as a 3D USD world, and robots whose bodies live in it, using the same messages.
+- **Tools for an AI agent:** an MCP server with 8 tools on the live warehouse, with clear errors and risky tools marked.
+- **Restocking:** people the robots must find and tell each other about, or restocking robots that book their way.
+- **367 tests**, and every result compared over many seeds.
+
+**Some results:**
+
+| What | Result |
+|---|---|
+| A* with bookings vs plain A* (10 seeds) | 80 vs 56 orders delivered, 54 vs 112 ticks per delivery, 0 collisions |
+| Forecast on real M5 data (whole days) | 6.2% error vs 10.7% for "same as last week" |
+| Fleet over real MQTT | exactly the same run as without MQTT, 0 state mismatches |
+| A robot dies (killed 90 times at different moments) | the fleet always recovered; before the fixes it got stuck in about half the cases |
+| Restocking (30 seeds) | costs about 10 minutes per delivery; people, badges or robots: the difference is within the noise |
+
+**What's next:** an AI agent (Claude) that plans, calls the MCP tools, checks the result and asks a person before risky actions. See [What's next](#whats-next).
+
+---
+
 ## What I have done so far
 
 ### 1. Set up the project
@@ -99,7 +142,7 @@ If I make a mistake in the file, it tells me clearly what is wrong. It checks th
 - robots start on a free cell they can drive on, and no two robots start in the same place
 
 ### 5. Wrote tests
-I have **353 tests** in the `tests/` folder. They check the rules, for example:
+I have **367 tests** in the `tests/` folder. They check the rules, for example:
 
 - a robot cannot drive into a wall, a shelf, a blocked cell or another robot
 - moving uses battery, and a robot with no battery cannot move
@@ -120,6 +163,11 @@ I have **353 tests** in the `tests/` folder. They check the rules, for example:
 - every message is valid VDA 5050, and a wrong message gives a clear error
 - a run over MQTT is exactly the same run, and a robot that dies or goes silent is marked lost
 - nobody waits forever for a lost robot, and a lost robot that comes back works again
+- the 3D world has every part of the layout, and robots in it give exactly the same run
+- every MCP tool works through a real MCP client and gives a clear error for a wrong request
+- a paused robot stays put, nobody drives into a closed aisle, a created order gets delivered
+- a new random day is different, and Reset repeats it
+- robots can't drive into a person, a sighting reroutes the other robots, an old spot is cleared
 
 ### 6. Charging, breakdowns and repairs
 - A robot can **charge** when it stands on a charger. It gets 5% per tick and stops at 100%.
@@ -795,6 +843,16 @@ fleetmind/
 ├── requirements.txt
 └── README.md
 ```
+
+---
+
+## What's next
+
+1. **The AI agent (Claude):** a planner, then an executor that calls the MCP tools, then a critic that checks the result and plans again if needed. It remembers what it did during a task, and has limits on steps and tool failures. Test: "Prepare for a big delivery at 2 pm."
+2. **Incidents and approval:** the fleet manager calls the agent when it can't solve something itself (a blocked aisle, several breakdowns). Before a risky action (closing an aisle, delaying orders) the agent asks, and a person clicks Approve or Reject on the website.
+3. **Eyes:** simulated camera images of an incident for a vision model, and a small classifier for damaged boxes.
+4. **Production:** an evaluation suite of incident scenarios, Docker for everything, tests on every push (GitHub Actions), and a public demo.
+5. **Isaac Sim on a GPU machine:** run `isaac/run_isaac.py` in Isaac Sim, then a real wheeled robot model with a lidar.
 
 ---
 
