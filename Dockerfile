@@ -25,8 +25,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=fleetmind:fleetmind . .
 USER fleetmind
 
-ENV PORT=8000 PYTHONUNBUFFERED=1
+# FLEETMIND_MESSAGES=on: the robots talk VDA 5050 messages (over the in-memory bus).
+# off: the same warehouse without the message layer, about 2x faster: for a very small CPU
+# (Render's free plan has 0.1 CPU: about 2 ticks per second with messages, 5 without).
+# EMBED_FROM: the website that may show the demo inside its pages, e.g. https://you.netlify.app
+ENV PORT=8000 PYTHONUNBUFFERED=1 FLEETMIND_MESSAGES=on EMBED_FROM=
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request,os; urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"PORT\"]}/health')"
 
-CMD ["sh", "-c", "python -m web.server --public --mqtt memory --host 0.0.0.0 --port ${PORT} --no-browser --scenario realistic_friday"]
+CMD ["sh", "-c", "python -m web.server --public $( [ \"$FLEETMIND_MESSAGES\" = off ] || echo --mqtt memory ) --host 0.0.0.0 --port ${PORT} --no-browser --scenario realistic_friday"]

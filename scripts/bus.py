@@ -52,9 +52,14 @@ def topic_matches(pattern, topic):
 class InMemoryBroker:
     """A tiny MQTT-like broker inside the process. Delivery is immediate and in order."""
 
-    def __init__(self):
+    def __init__(self, keep_log=True):
+        """
+        keep_log: remember every message in self.log (tests and the message story read it).
+        A long-running website must use keep_log=False, or the log grows for ever.
+        """
         self.connections = {}      # client_id -> Connection
         self.retained = {}         # topic -> message
+        self.keep_log = keep_log
         self.log = []              # every (sender, topic, message), handy in tests
         self._lock = threading.RLock()
 
@@ -69,15 +74,16 @@ class InMemoryBroker:
 
     def _publish(self, sender, topic, message, retain):
         with self._lock:
-            payload = json.loads(json.dumps(message))      # like the network: only JSON survives
-            self.log.append((sender, topic, payload))
+            text = json.dumps(message)                     # like the network: only JSON survives (encoded once)
+            if self.keep_log:
+                self.log.append((sender, topic, json.loads(text)))
             if retain:
-                self.retained[topic] = payload
+                self.retained[topic] = json.loads(text)
             targets = [(conn, cb) for conn in list(self.connections.values())
                        for pattern, cb in list(conn.subscriptions) if topic_matches(pattern, topic)]
             for conn, callback in targets:
                 if conn.open:
-                    callback(topic, json.loads(json.dumps(payload)))
+                    callback(topic, json.loads(text))      # every receiver gets its own copy
 
     def messages(self, pattern):
         """Everything published on topics matching pattern (for tests)."""

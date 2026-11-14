@@ -75,6 +75,26 @@ def test_the_speed_is_capped():
             assert msg["speed"] == server.PUBLIC_MAX_SPEED
 
 
+def test_the_website_keeps_no_message_log(monkeypatch):
+    """A demo runs for days: the in-memory bus must not remember every message."""
+    app = create_app(LAYOUT, public=True, mqtt="memory")
+    session = app.state.hub.session
+    for _ in range(50):
+        session.step()
+    assert session.broker.log == []
+    session.close()
+
+
+def test_only_my_website_may_show_the_demo_in_a_page(monkeypatch):
+    monkeypatch.setenv("EMBED_FROM", "https://yourname.netlify.app")
+    with TestClient(create_app(LAYOUT, public=True)) as client:
+        header = client.get("/health").headers["content-security-policy"]
+        assert header == "frame-ancestors 'self' https://yourname.netlify.app"
+    monkeypatch.delenv("EMBED_FROM")
+    with TestClient(create_app(LAYOUT, public=True)) as client:
+        assert "content-security-policy" not in client.get("/health").headers
+
+
 def test_the_normal_website_is_not_limited():
     with TestClient(create_app(LAYOUT)) as client:
         with client.websocket_connect("/ws") as ws:

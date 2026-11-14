@@ -1,0 +1,19 @@
+# Render Blueprint: the FleetMind public demo as a Docker web service.
+# In Render: New > Blueprint > pick this repository. Render reads this file.
+#
+# Free plan: 0.1 CPU, 512 MB, sleeps after 15 minutes without visitors (the first visit then
+# takes about a minute). FLEETMIND_MESSAGES=off keeps it smooth on 0.1 CPU (about 5 ticks/s).
+# On the Starter plan (0.5 CPU) set FLEETMIND_MESSAGES=on: the robots talk VDA 5050 messages.
+services:
+  - type: web
+    name: fleetmind-demo
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: FLEETMIND_MESSAGES
+        value: "off"
+      - key: EMBED_FROM
+        sync: false          # Render asks for it: your Netlify site, e.g. https://yourname.netlify.app

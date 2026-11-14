@@ -798,7 +798,9 @@ The free Space sleeps when nobody visits for a while and wakes up on the next vi
 
 ### Put the demo on your own website
 
-See [deploy/selfhost/README.md](deploy/selfhost/README.md):
+**On Render, shown on a Netlify website:** see [deploy/render-netlify.md](deploy/render-netlify.md). Render runs the demo from `render.yaml` (free plan; measured with its limits: about 65 MB and 5 ticks per second), and your Netlify page shows it with an `<iframe>`. `EMBED_FROM` makes sure only your website can show it.
+
+**Other ways,** see [deploy/selfhost/README.md](deploy/selfhost/README.md):
 - **Static website or website builder:** run the demo on Hugging Face (above) and show it in a page with an `<iframe>`.
 - **Your own server:** `deploy/selfhost/` runs the demo with Caddy on your domain (e.g. `demo.yoursite.com`) with HTTPS, in one `docker compose up -d --build`.
 

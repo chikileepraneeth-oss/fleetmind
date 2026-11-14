@@ -135,7 +135,7 @@ def make_broker(mqtt, broker="127.0.0.1:1883"):
     if mqtt is None:
         return None, ""
     if mqtt == "memory":
-        return InMemoryBroker(), "in-memory"
+        return InMemoryBroker(keep_log=False), "in-memory"   # a website runs for days: no message log
     host, _, port = broker.partition(":")
     return MqttBroker(host, int(port or 1883)), broker
 
@@ -180,6 +180,15 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
     if mcp_app:
         app.router.routes.extend(mcp_app.routes)   # POST/GET /mcp
     app.state.hub = hub
+
+    embed_from = " ".join(os.environ.get("EMBED_FROM", "").split())
+    if embed_from:
+        @app.middleware("http")
+        async def only_my_website_may_embed(request, call_next):
+            """EMBED_FROM=https://you.netlify.app: only that website may show the demo in an iframe."""
+            response = await call_next(request)
+            response.headers["Content-Security-Policy"] = f"frame-ancestors 'self' {embed_from}"
+            return response
 
     @app.get("/health")
     def health():
