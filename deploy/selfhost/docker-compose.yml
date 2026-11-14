@@ -1,0 +1,42 @@
+# The FleetMind public demo on YOUR server, on your own domain, with HTTPS.
+#
+#   1. point a DNS record (e.g. demo.yoursite.com) at this server
+#   2. put that name in .env next to this file:   DEMO_DOMAIN=demo.yoursite.com
+#   3. docker compose up -d --build
+#
+# Caddy gets the HTTPS certificate by itself and passes the live connection (WebSocket)
+# through. Only ports 80 and 443 are open; the demo itself is not reachable from outside.
+# Public mode: no MCP tools, no AI, no keys (see web/server.py).
+
+services:
+  demo:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8000"
+    expose:
+      - "8000"                 # only inside this compose network
+    mem_limit: 1g
+    cpus: 1.0
+
+  caddy:
+    image: caddy:2.8.4
+    restart: unless-stopped
+    depends_on:
+      - demo
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DEMO_DOMAIN: ${DEMO_DOMAIN:?put DEMO_DOMAIN=demo.yoursite.com in deploy/selfhost/.env}
+      EMBED_FROM: ${EMBED_FROM:-https://*}     # your website, e.g. https://www.yoursite.com (may show it in an iframe)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # the certificates
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

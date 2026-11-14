@@ -796,6 +796,12 @@ To put it online, any host that runs a Docker image works, e.g. Hugging Face Spa
 
 The free Space sleeps when nobody visits for a while and wakes up on the next visit. It has no API key and no AI.
 
+### Put the demo on your own website
+
+See [deploy/selfhost/README.md](deploy/selfhost/README.md):
+- **Static website or website builder:** run the demo on Hugging Face (above) and show it in a page with an `<iframe>`.
+- **Your own server:** `deploy/selfhost/` runs the demo with Caddy on your domain (e.g. `demo.yoursite.com`) with HTTPS, in one `docker compose up -d --build`.
+
 ### Compare restocking by people and by robots
 
 ```powershell
