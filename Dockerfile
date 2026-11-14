@@ -25,6 +25,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=fleetmind:fleetmind . .
 USER fleetmind
 
+# the replay viewer's recordings are generated (not in git): make them here
+RUN python -m scripts.record
+
 # FLEETMIND_MESSAGES=on: the robots talk VDA 5050 messages (over the in-memory bus).
 # off: the same warehouse without the message layer, about 2x faster: for a very small CPU
 # (Render's free plan has 0.1 CPU: about 2 ticks per second with messages, 5 without).
