@@ -49,7 +49,6 @@ def test_path_is_connected_step_by_step():
 
 
 def test_path_goes_around_a_shelf_row():
-    # shelf row B is between (3, 4) and (5, 4): the robot must go around its end
     wh = load_layout(MAIN_LAYOUT)
     path = astar(wh, (3, 4), (5, 4))
     assert path is not None
@@ -141,7 +140,6 @@ def test_single_robot_with_astar_delivers_orders():
 
 
 def test_single_robot_with_astar_never_gets_stuck():
-    # alone in the warehouse, there is nothing to wait for
     sim = one_robot_sim("astar")
     assert sim.kpis()["stuck_steps"] == 0
 

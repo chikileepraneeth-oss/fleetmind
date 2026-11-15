@@ -52,7 +52,6 @@ class RobotAgent:
         self.conn = None
         self._stop = threading.Event()
 
-        # what the robot knows about itself
         self.position = None               # unknown until the manager sends initPosition
         self.battery = 0.0
         self.load = None
@@ -62,7 +61,6 @@ class RobotAgent:
         self.tick = 0
         self.driving = False
 
-        # the order it is working on
         self.order_id = ""
         self.update_id = 0
         self.nodes = []                    # node dicts from the order (released and horizon)
@@ -75,7 +73,6 @@ class RobotAgent:
         self.moved_through = []            # cells driven through in the last tick (for animation)
         self.publish_after_tick = True     # Isaac Sim reports only after the robot has really arrived
 
-    # Hooks for robots that live in a 3D simulator (isaac/bridge.py):
 
     def dispatch(self, handler, *args):
         """Run a message handler. Isaac Sim overrides this to run it on its main thread."""
@@ -94,7 +91,6 @@ class RobotAgent:
         will = (v.topic(self.serial, "connection"),
                 v.connection(self.header, self.tick, "CONNECTIONBROKEN"), True)
         self.conn = self.broker.connect(self.serial, will=will)
-        # after a broken connection the broker sent our will (CONNECTIONBROKEN): say ONLINE again
         self.conn.on_reconnect = self._announce
         self.conn.subscribe(v.topic(self.serial, "order"), lambda t, m: self.dispatch(self._receive, "order", m))
         self.conn.subscribe(v.topic(self.serial, "instantActions"),
@@ -150,7 +146,6 @@ class RobotAgent:
                 self.publish_state()
                 return
             if kind == "instantActions":
-                # these can't wait for the next tick: the manager needs the answer now
                 now = [a for a in message["actions"] if a["actionType"] in ("initPosition", "stateRequest", "cancelOrder")]
                 later = [a for a in message["actions"] if a not in now]
                 for act in now:
@@ -196,7 +191,6 @@ class RobotAgent:
         nodes = msg["nodes"]
         first = v.cell_of(nodes[0]["nodeId"])
         if msg["orderId"] != self.order_id:
-            # a new order must start where the robot stands
             if self.position is None or first != self.position:
                 self.order_errors.append(_error(
                     "orderNoRoute", "WARNING",
@@ -309,7 +303,6 @@ class RobotAgent:
         if kind == "stopPause":
             self.paused = False
             return self._action_done(act, "FINISHED", "")
-        # made-up accidents from the simulation (see scripts/vda5050.py)
         if kind == "simBreakdown":
             self.repair_left = int(params["repairTicks"])
             return self._action_done(act, "FINISHED", f"broken for {self.repair_left} ticks")

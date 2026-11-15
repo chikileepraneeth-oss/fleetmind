@@ -140,7 +140,6 @@ class FleetLink:
         robot = sim.warehouse.robots[rid]
         instant = []
 
-        # what the robot's battery would be WITHOUT charging, to see if it charged this tick
         battery = start_battery
         for event in events:
             if event == "battery_rescue":
@@ -255,8 +254,6 @@ class FleetLink:
             self.state_tick[rid] = v.tick_of(msg["timestamp"])
             self.last_seen[rid] = self.clock()
             if self.connection.get(rid) in ("OFFLINE", "CONNECTIONBROKEN"):
-                # states aren't retained: a robot that sends one NOW is online, whatever an
-                # older connection message said (e.g. it reconnected after a network blip)
                 self.connection[rid] = "ONLINE"
             self.cond.notify_all()
 
@@ -409,7 +406,6 @@ def main():
     realistic = sim.config.demand == "realistic" and not args.ticks
     ticks = args.ticks or SCENARIOS[args.scenario]["ticks"]
     began = time.perf_counter()
-    # a realistic day runs until its last order is delivered; otherwise a fixed number of ticks
     while (not sim.day_over()) if realistic else sim.tick < ticks:
         link.step()
         if sim.tick % 100 == 0:

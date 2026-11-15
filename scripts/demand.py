@@ -38,15 +38,11 @@ OPEN_HOUR, CLOSE_HOUR = 6, 22
 HOURS = list(range(OPEN_HOUR, CLOSE_HOUR))         # 6, 7, ..., 21
 MINUTES_PER_DAY = len(HOURS) * 60                   # 960
 
-# Expected orders per hour on a normal Tuesday at normal level.
-# Morning peak around 10:00, quieter at lunch, bigger evening peak around 18:00.
-# (5 robots deliver about 10-11 orders an hour, so the peaks are more than they can do.)
 BASE_PER_HOUR = {
     6: 2, 7: 4, 8: 7, 9: 11, 10: 13, 11: 11, 12: 7, 13: 6,
     14: 7, 15: 9, 16: 12, 17: 15, 18: 16, 19: 12, 20: 7, 21: 4,
 }
 
-# Monday = 0 ... Sunday = 6
 WEEKDAY_FACTOR = [1.15, 1.00, 0.95, 1.05, 1.20, 0.70, 0.45]
 WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 

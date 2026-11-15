@@ -75,7 +75,6 @@ def test_no_two_robots_ever_share_a_cell():
         sim.step()
         positions = [r.position for r in wh.robots.values()]
         assert len(positions) == len(set(positions))
-        # the occupancy record must match the robots' real positions
         assert wh.occupied == {r.position: r.robot_id for r in wh.robots.values()}
 
 

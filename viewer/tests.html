@@ -21,7 +21,6 @@
   .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: calc(100vh - 53px); }
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; height: auto; } }
 
-  /* sidebar */
   nav { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   .search { padding: 12px; border-bottom: 1px solid var(--line); }
   .search input { width: 100%; font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; }
@@ -37,7 +36,6 @@
   .item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .item .count { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 
-  /* main */
   main { overflow: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; min-height: 0; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
   .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; }
@@ -169,7 +167,6 @@
 
   let current = null, step = 0, timer = null, filter = "all";
 
-  // Turn "test_robot_cannot_move_into_wall" into "Robot cannot move into wall"
   const human = (name) => {
     const s = name.replace(/^test_/, "").replace(/_/g, " ");
     return s.charAt(0).toUpperCase() + s.slice(1);
@@ -222,7 +219,6 @@
     stop();
     current = test;
     step = 0;
-    // start at the first "real" action (skip setup) when there is one
     const firstAction = test.frames.findIndex((f) => !f.label.startsWith("setup:"));
     if (firstAction > 0) step = Math.max(0, firstAction - 1);
 
@@ -245,7 +241,6 @@
     const t = current;
     const visual = $("visual");
 
-    // Broken layout file tests: show the file's map and the error it caused
     if (t.layout_error) {
       const lines = t.layout_error.map.map((row, i) =>
         `<span class="ln">${String(i).padStart(2)}</span>${escape(row)}  <span class="ln">(${row.length})</span>`).join("\n");
@@ -258,7 +253,6 @@
       return;
     }
 
-    // Logic-only tests: nothing to draw
     if (!t.frames.length) {
       visual.innerHTML = `<div class="nomap">This test checks <b>logic only</b> (numbers, orders or shelves),
         without a warehouse map or a moving robot. Read the code on the right: each <b>assert</b> is one check.</div>
@@ -320,7 +314,6 @@
       return `<li data-s="${i}" class="${i === step ? "active" : ""}"><span class="n">${i + 1}</span>${mark}<span class="label">${escape(f.label)}</span></li>`;
     }).join("");
     list.onclick = (e) => { const li = e.target.closest("li"); if (li) { stop(); go(Number(li.dataset.s)); } };
-    // keep the current step visible inside the list without scrolling the whole page
     const active = list.querySelector(".active");
     if (active) {
       const top = active.offsetTop - list.offsetTop;
@@ -398,7 +391,6 @@
       }
     }
 
-    // shelf units: one outline and one letter per block
     for (const [ch, b] of Object.entries(shelfIndex)) {
       ctx.strokeStyle = "#b9c3d3"; ctx.lineWidth = 1.5;
       ctx.strokeRect(b.c0 * cell + 1, b.r0 * cell + 1, (b.c1 - b.c0 + 1) * cell - 2, (b.r1 - b.r0 + 1) * cell - 2);
@@ -409,7 +401,6 @@
       ctx.fillText(ch.toUpperCase(), (b.c0 + b.c1 + 1) / 2 * cell, (b.r0 + b.r1 + 1) / 2 * cell);
     }
 
-    // where the previous step's robots were (faint), to show movement
     const prev = step > 0 ? current.frames[step - 1] : null;
     if (prev && prev.map) {
       for (const r of prev.robots) {
@@ -423,7 +414,6 @@
       }
     }
 
-    // planned routes (A*)
     for (const r of f.robots) {
       if (!r.on_map || !r.path || !r.path.length) continue;
       ctx.setLineDash([4, 4]); ctx.strokeStyle = robotColor(r); ctx.globalAlpha = .7; ctx.lineWidth = 2;
@@ -468,7 +458,6 @@
     }).join("\n");
   }
 
-  // keyboard: left/right to step
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT" || !current || !current.frames.length) return;
     if (e.code === "ArrowRight") { stop(); go(step + 1); }

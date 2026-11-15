@@ -252,7 +252,6 @@ class FleetTools:
         name, info = self._aisle(aisle)
         if name in sim.closed_aisles:
             raise ToolInputError(f"Aisle {name} is already closed. Use reopen_aisle to open it.")
-        # shelves that can't be reached from ANY open spot any more: their orders would wait forever
         closed_after = {c for cells in sim.closed_aisles.values() for c in cells} | set(info["cells"])
         cut_off = [sid for sid in info["shelves"]
                    if not [c for c in sim.warehouse.access_cells(sim.warehouse.shelves[sid])

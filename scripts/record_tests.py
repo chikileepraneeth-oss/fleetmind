@@ -17,7 +17,6 @@ import pytest
 
 def main():
     os.environ["FLEETMIND_RECORD_TESTS"] = "1"
-    # -p no:cacheprovider keeps the run clean; -q keeps the output short
     sys.exit(pytest.main(["-q", "-p", "no:cacheprovider", "tests"]))
 
 

@@ -125,7 +125,6 @@ class Hub:
                 await self.broadcast([message])
                 if self.desk:
                     await self.desk.watch()           # an incident for the AI supervisor?
-            # wait the rest of this tick's time slot (stepping itself took some of it)
             await asyncio.sleep(max(0.0, 1 / self.session.speed - (loop.time() - started)))
 
 
@@ -155,10 +154,8 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
     if public:
         session.start()                            # the demo runs by itself
 
-    # the fleet's tools for AI agents (MCP), at /mcp, on the same live warehouse. NOT in the public demo.
     mcp = None if public else build_mcp(hub)
     mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp") if mcp else None
-    # the AI supervisor: never in the public demo
     hub.desk = AgentDesk(hub, mcp, None if public or mcp is None else agent_model, incidents=incidents)
 
     @asynccontextmanager

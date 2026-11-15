@@ -89,7 +89,6 @@ def add_features(df):
     totals = df.groupby("day")["orders"].sum().shift(1)
     df["prev_day_total"] = df["day"].map(totals)
 
-    # calendar
     df["event"] = (df["event"].astype(str) != "").astype(int)
     df["event_type_code"] = df["event_type"].astype(str).map(EVENT_TYPES).fillna(0).astype(int)
     event_by_day = df.groupby("day")["event"].max()

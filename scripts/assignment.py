@@ -63,8 +63,6 @@ def assign_smart(sim):
     if not free or not sim.queue:
         return
 
-    # Earliest deadline first. High-priority orders get shorter deadlines,
-    # so they naturally come first, but old normal orders are not forgotten.
     orders = sorted(sim.queue, key=lambda o: (o.deadline, -o.priority.value, o.created_at, o.order_id))
 
     for order in orders:
@@ -76,7 +74,6 @@ def assign_smart(sim):
             if plan is None:
                 continue                         # can't reach, or not enough battery
             spot, steps = plan
-            # lower is better: distance first, then more battery, then less work today
             score = (steps, -robot.battery, sim.deliveries_by.get(robot.robot_id, 0), robot.robot_id)
             if best is None or score < best[0]:
                 best = (score, robot, spot)
@@ -122,7 +119,6 @@ def trip_plan(sim, robot, order):
 
 def give_order(sim, robot, order, spot):
     if robot.task in ("to_charger", "charging"):
-        # opportunity charging: unplug (or stop driving to the charger) and go to work
         sim.log("left_charger_for_order", robot.robot_id, f"battery {robot.battery:.1f}%")
         if robot.status == RobotStatus.CHARGING:
             robot.status = RobotStatus.IDLE
@@ -157,7 +153,6 @@ def charge_smart(sim):
     cfg = sim.config
     robots = sim._robots()
     free = [r for r in robots if sim._is_free(r)]
-    # lowest battery first, so the robots that need it most get the chargers
     free.sort(key=lambda r: (r.battery, r.robot_id))
 
     min_available = max(1, round(len(robots) * cfg.min_available_share))
@@ -249,7 +244,6 @@ def battery_safety(sim):
         if robot.battery >= (remaining + after) * step + sim.config.safety_buffer:
             continue                                 # still fine
 
-        # not enough to finish safely: charge first
         if robot.task == "to_pickup":
             order = robot.order
             order.status = OrderStatus.WAITING
@@ -262,7 +256,6 @@ def battery_safety(sim):
 
         robot.task = None
         if not send_to_charger(sim, robot):
-            # every charger is busy: stand still (uses no battery) until one is free
             robot.task = "wait_charger"
             robot.target = None
             robot.path = []

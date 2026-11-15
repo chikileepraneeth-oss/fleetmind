@@ -60,7 +60,6 @@ class Recorder:
     def finish(self):
         if self.current is None:
             return
-        # a last picture of the final state
         if self.warehouses or self._robots_without_map:
             self.frame("End of test: final state", final=True)
         self.tests.append(self.current)
@@ -194,7 +193,6 @@ def install():
             try:
                 result = original(self, *args, **kwargs)
             except Exception as error:
-                # e.g. a test checking that a robot can't be placed on a shelf
                 REC.frame(f"setup: {name}({describe(args)}) → raised {type(error).__name__}: {error}", ok=False)
                 raise
             REC.frame(f"setup: {name}({describe(args)})")
@@ -208,7 +206,6 @@ def install():
     wrap_setup("block_cell", lambda a: repr(a[0]))
     wrap_setup("unblock_cell", lambda a: repr(a[0]))
 
-    # Loading a layout: record ONE frame, not every shelf/robot added inside it
     original_build = layout.build_warehouse
 
     @functools.wraps(original_build)
@@ -227,7 +224,6 @@ def install():
         return wh
     layout.build_warehouse = build_wrapper
 
-    # Simulation: one frame per tick (for the first ticks), not per robot move
     original_step = simulation.Simulation.step
 
     @functools.wraps(original_step)

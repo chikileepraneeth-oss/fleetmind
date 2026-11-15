@@ -19,15 +19,6 @@ from scripts.layout import load_layout, build_warehouse, LayoutError
 MAIN_LAYOUT = "layouts/main_warehouse.json"
 
 
-# A small valid layout used as a starting point for "broken file" tests.
-#   One shelf row "a" with 3 shelves (A1, A2, A3), one packing station, one robot.
-#
-#   row 0:  # # # # # # #
-#   row 1:  # . . . . . #
-#   row 2:  # . a a a . #      A1=(2,2) apples, A2=(2,3) rice, A3=(2,4) milk
-#   row 3:  # . . . . . #
-#   row 4:  # . . . . P #
-#   row 5:  # # # # # # #
 SMALL = {
     "map": [
         "#######",
@@ -100,7 +91,6 @@ def test_main_layout_stations_and_robots():
     assert len(wh.cells_of_type(CHARGER)) == 3
     assert len(wh.cells_of_type(PACKING)) == 2
     assert len(wh.cells_of_type(DOCK)) == 3
-    # robots: whatever the file says, so this test follows your edits
     assert sorted(wh.robots) == sorted(r["id"] for r in data["robots"])
 
 
@@ -266,7 +256,6 @@ def test_duplicate_robot_id_fails():
 
 def test_unreachable_shelf_fails():
     data = small_layout()
-    # shelf row walled in on every side
     data["map"] = [
         "#######",
         "#.###.#",

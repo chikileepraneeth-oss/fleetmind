@@ -170,8 +170,6 @@ class MqttConnection:
             raise ConnectionError(
                 f"no MQTT broker at {broker.host}:{broker.port} ({error}). "
                 f"Start one with: docker compose up -d") from None
-        # Send small messages at once. Without this, TCP holds a small message back until the
-        # previous one is acknowledged (Nagle's algorithm), which made every tick ~90 ms slower.
         self.client.socket().setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.client.loop_start()
         if not self._connected.wait(self.timeout):
@@ -206,8 +204,6 @@ class MqttConnection:
                     print(f"[{self.client_id}] error handling {msg.topic}: {error!r}")
 
     def publish(self, topic, message, retain=False):
-        # VDA 5050: QoS 0 ("at most once") for order, instantActions and state, QoS 1 ("at least
-        # once") only for connection. Measured here: QoS 0 takes ~1 ms there and back, QoS 1 ~95 ms.
         qos = 1 if topic.endswith("/connection") else 0
         self.client.publish(topic, json.dumps(message), qos=qos, retain=retain)
 

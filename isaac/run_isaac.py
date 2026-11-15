@@ -44,7 +44,6 @@ def main():
     if args.no_isaac:
         return run_without_isaac(args)
 
-    # Isaac Sim must be started before anything else from Omniverse (and pxr) is imported.
     from isaacsim import SimulationApp
     app = SimulationApp({"headless": args.headless, "width": 1600, "height": 900})
 

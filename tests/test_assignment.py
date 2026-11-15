@@ -37,7 +37,6 @@ def make_order(sim, item, priority=Priority.NORMAL, created_at=0, deadline=100):
 def test_distance_table_goes_around_shelves():
     wh = load_layout(MAIN_LAYOUT)
     dist = distance_table(wh)
-    # (3, 4) and (5, 4) are 2 cells apart, but shelf row B is in between
     assert dist[(3, 4)][(5, 4)] > 2
 
 
@@ -52,7 +51,6 @@ def test_distance_table_is_symmetric():
 # ---------------------------------------------------------------------------
 
 def test_nearest_robot_gets_the_order():
-    # apples are on A1 at (2, 2). R1 is right next to it, R2 is far away.
     sim = make_sim(robots={"R1": (3, 2), "R2": (10, 12)})
     order = make_order(sim, "apples")
     sim.queue.append(order)
@@ -167,7 +165,6 @@ def test_no_more_robots_charge_than_there_are_chargers():
 
 
 def test_robot_leaves_charger_early_when_orders_pile_up():
-    # a smart-charging rule (with opportunity charging, robots on a charger just take the order)
     sim = make_sim(robots={"R1": (10, 4)}, charging="smart")
     robot = sim.warehouse.robots["R1"]
     robot.task = "charging"

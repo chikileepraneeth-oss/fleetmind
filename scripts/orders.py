@@ -8,7 +8,6 @@ created from a seed. Same seed -> exactly the same orders every run.
 from scripts.classes import Order, Priority, PACKING
 
 
-# How likely each priority is, and how many ticks each one gets until its deadline.
 PRIORITY_WEIGHTS = {Priority.HIGH: 0.2, Priority.NORMAL: 0.6, Priority.LOW: 0.2}
 DEADLINE_TICKS = {Priority.HIGH: 60, Priority.NORMAL: 100, Priority.LOW: 200}
 

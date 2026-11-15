@@ -117,7 +117,6 @@ class SimRobot(RobotAgent):
             self.publish_state()
 
     def publish_state(self):
-        # the body is the truth: if something pushed it into another cell, that is where we are now
         if self.position is not None and self.arrived:
             cell, _ = self.reported_pose()
             if cell != self.position:
@@ -149,7 +148,6 @@ class SimFleet:
     def start(self):
         for robot in self.robots.values():
             robot.start(heartbeat=False)     # the heartbeat comes from step_frame (main thread)
-        # listen for robots the manager wants that this world doesn't have yet
         self.watcher = self.broker.connect("fleetmind-world-spawner")
         self.watcher.subscribe("uagv/v2/FleetMind/+/instantActions",
                                lambda topic, msg: self.inbox.put((self._maybe_spawn, (topic, msg))))

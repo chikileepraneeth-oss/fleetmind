@@ -9,7 +9,6 @@ from tests.test_traffic import broken_in_front
 
 def test_reason_behind_a_broken_robot():
     sim, r1, r2 = broken_in_front()        # R2 is broken right in front of R1
-    # (no step: one step later R1 is already driving around R2)
     reason, blocker = why_waiting(sim, r1)
     assert reason == "behind a broken robot" and blocker == "R2"
 

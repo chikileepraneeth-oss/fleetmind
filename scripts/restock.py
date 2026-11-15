@@ -178,10 +178,8 @@ class RestockCrew:
     def _plan(self, m):
         sim, wh = self.sim, self.sim.warehouse
         if m.kind == "person":
-            # people see the robots and other people, and walk around them
             avoid = set(wh.occupied) | (set(wh.people) - {m.position})
             return astar(wh, m.position, m.target, avoid) or astar(wh, m.position, m.target) or []
-        # restock robots plan like the fleet: with bookings, so everyone knows their route
         now = sim.tick - 1
         sim.table.release(m.id)
         path = cooperative_astar(wh, m.position, m.target, now, sim.table, m.id, sim.dist,
@@ -210,7 +208,6 @@ class RestockCrew:
         robots = [r for r in sim._robots() if r.robot_id not in sim.lost]
         where = {m.id: m.position for m in self.members}
         for robot in robots:
-            # everyone this robot can see
             for pid, cell in sorted(where.items()):
                 if not self._can_see(robot.position, cell):
                     continue
@@ -225,7 +222,6 @@ class RestockCrew:
                 self.reports += 1
                 sim.log("person_seen", robot.robot_id, f"{pid} {moved} {cell}: told every robot")
                 self._reroute_through(pid, cell)
-            # old spots this robot can see where the person isn't any more
             for pid, known in list(self.known.items()):
                 if known["cell"] != where.get(pid) and self._can_see(robot.position, known["cell"]):
                     sim.log("person_gone", robot.robot_id, f"{pid} is no longer at {known['cell']}")

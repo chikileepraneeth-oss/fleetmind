@@ -13,7 +13,6 @@
     --line: #dde1e7;
     --accent: #2f6fdf;
 
-    /* robot task colors */
     --idle: #8a8f98;
     --lost: #3b4252;
     --to-pickup: #2f6fdf;
@@ -192,7 +191,6 @@
     return;
   }
 
-  // The map drawing lives in draw.js (shared with the live website)
   const { robotColor, TASK_LABEL } = FleetDraw;
 
   const $ = (id) => document.getElementById(id);
@@ -207,7 +205,6 @@
   let lastFrameTime = null;
   let eventIndexByTick = []; // events[0 .. eventIndexByTick[tick]] happened at or before tick
 
-  // Fill the scenario list
   for (const key of Object.keys(RECS)) {
     const opt = document.createElement("option");
     opt.value = key;
@@ -226,7 +223,6 @@
     $("description").textContent = `${rec.description}  (seed ${rec.seed}, ${rec.ticks} ticks)`;
     $("timeline").max = rec.ticks;
 
-    // Index events by tick, so "everything up to tick N" is quick
     eventIndexByTick = new Array(rec.ticks + 1).fill(0);
     let i = 0;
     for (let tick = 0; tick <= rec.ticks; tick++) {
@@ -274,7 +270,6 @@
 
     for (const robot of now.robots) {
       const after = next.robots.find((x) => x.id === robot.id) || robot;
-      // smooth movement between ticks
       const row = robot.pos[0] + (after.pos[0] - robot.pos[0]) * frac;
       const col = robot.pos[1] + (after.pos[1] - robot.pos[1]) * frac;
       map.drawRobot(robot, row, col, {
@@ -284,7 +279,6 @@
     }
   }
 
-  // Timeline strip: one mark per important event
   function drawStrip() {
     const w = strip.clientWidth, h = 18;
     sctx.clearRect(0, 0, w, h);
@@ -308,7 +302,6 @@
     const frame = rec.frames[tick];
     const upTo = rec.events.slice(0, eventIndexByTick[tick]);
 
-    // KPIs so far
     let created = 0, delivered = 0, late = 0, breakdowns = 0, total = 0;
     for (const [, , name, details] of upTo) {
       if (name === "order_created") created++;
@@ -327,7 +320,6 @@
     $("k-breakdowns").textContent = breakdowns;
     $("k-avg").textContent = delivered ? (total / delivered).toFixed(1) : "–";
 
-    // Robot table
     const rows = frame.robots.map((r) => {
       const color = robotColor(r);
       const label = r.status === "error" ? `Broken (${r.repair} left)` : TASK_LABEL[r.task] || r.task;
@@ -342,7 +334,6 @@
     });
     $("robots").innerHTML = rows.join("");
 
-    // Latest events (newest first); only the selected robot's if one is selected
     const list = [];
     for (let i = upTo.length - 1; i >= 0 && list.length < 40; i--) {
       const [tk, robot, name, details] = upTo[i];
@@ -384,7 +375,6 @@
     map.drawPeople(rec.frames[tick].people, rec.frames[tick].known_people);
     drawRobots(tick, frac);
 
-    // realistic days: 1 tick = 1 minute from 06:00, so show the clock too
     const clock = rec.config.demand === "realistic"
       ? `${String(6 + Math.floor(tick / 60)).padStart(2, "0")}:${String(tick % 60).padStart(2, "0")} · ` : "";
     $("tick-label").textContent = `${clock}Tick ${tick} / ${rec.ticks}`;
@@ -439,7 +429,6 @@
   $("trails").addEventListener("change", update);
   $("targets").addEventListener("change", update);
 
-  // Click a robot on the map, or a row in the table, to follow it
   canvas.addEventListener("click", (e) => {
     const best = map.robotAt(e, rec.frames[Math.floor(t)].robots);
     selected = best === selected ? null : best;
@@ -454,7 +443,6 @@
     update();
   });
 
-  // Keyboard: space = play/pause, arrows = step
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "SELECT") return;
     if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }

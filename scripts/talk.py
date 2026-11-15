@@ -30,7 +30,6 @@ from scripts.robot_agent import RobotAgent
 LAYOUT = "layouts/main_warehouse.json"
 SECONDS_PER_TICK = 0.1
 
-# The kinds of conversation, in the order they are explained.
 WHY = {
     "hello": "The robots were just switched on. They know the map, but not where they stand or "
              "how full their battery is. The manager tells each robot where it is (initPosition), "
