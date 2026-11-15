@@ -5,14 +5,16 @@ The Shift Lead: after every tick it looks for incidents and decides what to do, 
        an empty shelf; many late orders; a sudden pile of new orders
     2. a playbook for it? (scripts/shift_lead/playbooks.py) -> run it now, through the tools
     3. no playbook, or 3 or more incidents open at once? -> "needs a manager": escalate.
-       The escalation is only put in a queue here; the LLM runs somewhere else, in the
-       background (web/agent_desk.py, scripts/compare_shift_lead.py), so a tick never waits for it.
+       The escalation is only put in the outbox here (a thread-safe queue). The LLM runs
+       somewhere else, in the background (web/agent_desk.py, scripts/compare_shift_lead.py),
+       so a tick never waits for it. In the public demo no manager may be asked at all.
     4. notice when an incident is solved, and how many minutes it took
 
 Rules decide in microseconds, every tick. The LLM is only asked for what the rules don't cover.
 The Shift Lead uses no randomness, so the same seed still gives the same run.
 """
 
+from collections import deque
 from dataclasses import dataclass, field
 
 from scripts.classes import RobotStatus
@@ -34,6 +36,7 @@ class Incident:
     kind: str
     tick: int
     cell: tuple = None
+    cells: tuple = ()                          # a spill can cover several touching cells: one incident
     robot: str = None
     shelf: str = None
     detail: str = ""
@@ -54,6 +57,7 @@ class Incident:
 
     def to_dict(self):
         return {"id": self.id, "kind": self.kind, "tick": self.tick, "cell": list(self.cell) if self.cell else None,
+                "cells": [list(c) for c in self.cells],
                 "robot": self.robot, "shelf": self.shelf, "detail": self.detail, "decision": self.decision,
                 "reason": self.reason, "handled_by": self.handled_by, "ticket": self.ticket,
                 "status": self.status, "solved": self.solved, "minutes": self.minutes,
@@ -62,16 +66,16 @@ class Incident:
 
 class ShiftLead:
 
-    def __init__(self, session, escalate=None, manager_allowed=True):
+    def __init__(self, session, manager_allowed=False):
         """
         session: web.session.LiveSession (its simulation changes on reset; the lead follows).
-        escalate(text, incidents): puts a task for the manager (the LLM) in a queue. Must not block.
-        manager_allowed=False (the public demo): "needs a manager" is only written down.
+        manager_allowed: an LLM may be asked (web/agent_desk.py takes the tasks from `outbox`).
+            False (no AI, or the public demo): "needs a manager" is only written down.
         """
         self.session = session
         self.tools = FleetTools(session)
-        self.escalate = escalate
         self.manager_allowed = manager_allowed
+        self.outbox = deque()                          # tasks for the manager: {"text", "incidents", "tick"}
         self.sim = None
         self.attach()
 
@@ -108,10 +112,13 @@ class ShiftLead:
         sim, wh = self.sim, self.sim.warehouse
         found = []
         lost_cells = set(sim.lost_cells.values())
-        for cell in sorted(wh.blocked):
-            kind = sim.block_reasons.get(cell)
-            if kind in CLEANABLE and cell not in lost_cells and not self._open(kind=kind, cell=cell):
-                found.append(self._new(kind, cell=cell, detail=f"a {kind} at {list(cell)}"))
+        new_cells = {cell: sim.block_reasons.get(cell) for cell in sorted(wh.blocked)
+                     if sim.block_reasons.get(cell) in CLEANABLE and cell not in lost_cells
+                     and not self._open(kind=sim.block_reasons.get(cell), cell=cell)}
+        for group in _touching_groups(new_cells):
+            kind = new_cells[group[0]]
+            where = f"{list(group[0])}" if len(group) == 1 else f"{len(group)} cells from {list(group[0])}"
+            found.append(self._new(kind, cell=group[0], cells=tuple(group), detail=f"a {kind} at {where}"))
         for robot in sim._robots():
             rid = robot.robot_id
             if rid in sim.lost:
@@ -138,9 +145,10 @@ class ShiftLead:
             found.append(self._new("order_surge", detail=f"{jump} new orders arrived at once"))
         return found
 
-    def _new(self, kind, cell=None, robot=None, shelf=None, detail=""):
+    def _new(self, kind, cell=None, robot=None, shelf=None, detail="", cells=()):
         sim = self.sim
-        incident = Incident(f"I{self.next_number}", kind, sim.tick, cell=cell, robot=robot, shelf=shelf, detail=detail,
+        incident = Incident(f"I{self.next_number}", kind, sim.tick, cell=cell, cells=cells or ((cell,) if cell else ()),
+                            robot=robot, shelf=shelf, detail=detail,
                             late_at_start=sim.kpis()["late_orders"], queue_at_start=len(sim.queue))
         self.next_number += 1
         self.incidents.append(incident)
@@ -154,7 +162,7 @@ class ShiftLead:
             incident.handled_by = "rules"
         else:
             incident.decision = NEEDS_MANAGER
-            if self.manager_allowed and self.escalate:
+            if self.manager_allowed:
                 incident.handled_by = "llm"
                 incident.reason = f"No playbook for '{incident.kind}': asking the manager (the AI) what to do."
                 self._escalate(f"INCIDENT {incident.id}: {incident.detail}. No playbook covers this. "
@@ -176,16 +184,25 @@ class ShiftLead:
         self._many_open_asked = True
         sim = self.sim
         sim.log("decision", "", f"{len(open_now)} incidents open at once: {NEEDS_MANAGER}")
-        if not (self.manager_allowed and self.escalate):
+        if not self.manager_allowed:
             return
         lines = "; ".join(f"{i.id} {i.detail} ({i.decision}{', ticket ' + i.ticket if i.ticket else ''})" for i in open_now)
         self._escalate(f"{len(open_now)} INCIDENTS ARE OPEN AT THE SAME TIME: {lines}. The playbooks already did "
                        f"their part. Decide what matters most now and what else the fleet should do.", open_now)
-        self.counts["llm"] += 1
 
     def _escalate(self, text, incidents):
-        self.escalations.append({"tick": self.sim.tick, "text": text, "incidents": [i.id for i in incidents]})
-        self.escalate(text, incidents)
+        task = {"tick": self.sim.tick, "text": text, "incidents": [i.id for i in incidents]}
+        self.escalations.append(task)
+        self.outbox.append(task)                       # never wait here: the LLM runs in the background
+
+    def manager_busy(self, task, why):
+        """The manager could not take a task: those incidents are only written down."""
+        for i in self.incidents:
+            if i.id in task["incidents"] and i.handled_by == "llm":
+                i.handled_by = "nobody"
+                i.reason += f" The manager could not take it ({why}): written down only."
+                self.counts["llm"] -= 1
+                self.counts["nobody"] += 1
 
     def advice(self, incident):
         """Advice from earlier cases (the case log); nothing yet."""
@@ -198,7 +215,7 @@ class ShiftLead:
                 continue
             solved = False
             if i.kind in CLEANABLE:
-                solved = i.cell not in wh.blocked
+                solved = not any(c in wh.blocked for c in i.cells)
             elif i.kind == "robot_broken":
                 robot = wh.robots.get(i.robot)
                 solved = robot is None or (robot.status != RobotStatus.ERROR and i.robot not in sim.lost)
@@ -225,7 +242,7 @@ class ShiftLead:
     def _open(self, kind, cell=None, robot=None, shelf=None):
         for i in self.incidents:
             if i.status == "open" and i.kind == kind and (
-                    (cell is not None and i.cell == cell) or (robot is not None and i.robot == robot)
+                    (cell is not None and cell in i.cells) or (robot is not None and i.robot == robot)
                     or (shelf is not None and i.shelf == shelf)):
                 return i
         return None
@@ -247,8 +264,29 @@ class ShiftLead:
     def snapshot(self):
         open_now = [i for i in self.incidents if i.status == "open"]
         return {
-            "counts": dict(self.counts),
+            "counts": dict(self.counts),                    # incidents decided by rules / by the LLM / by nobody
+            "manager_tasks": len(self.escalations),         # tasks handed to the LLM (incl. "3 open at once")
+            "manager_allowed": self.manager_allowed,
             "open": len(open_now),
             "incidents": [i.to_dict() for i in self.incidents[-25:]],
             "playbooks": sorted(PLAYBOOKS),
         }
+
+
+def _touching_groups(cells):
+    """Cells of the same kind that touch each other form one group (one spill over 3 cells = 1 incident)."""
+    left, groups = set(cells), []
+    for start in sorted(cells):
+        if start not in left:
+            continue
+        group, todo = [], [start]
+        left.discard(start)
+        while todo:
+            c = todo.pop()
+            group.append(c)
+            for n in ((c[0] - 1, c[1]), (c[0] + 1, c[1]), (c[0], c[1] - 1), (c[0], c[1] + 1)):
+                if n in left and cells[n] == cells[start]:
+                    left.discard(n)
+                    todo.append(n)
+        groups.append(sorted(group))
+    return groups

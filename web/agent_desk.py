@@ -9,7 +9,11 @@ The AI supervisor on the website: the chat panel, the Approve / Reject buttons, 
       APPROVAL_TIMEOUT seconds counts as Reject.
     - One task at a time; a few more can wait in a queue.
 
-The desk is OFF in the public demo (web/server.py --public), so nobody can use the API key.
+With the Shift Lead (scripts/shift_lead/lead.py) the rules handle the known incidents; the desk only
+gets what the rules hand over ("needs a manager"), from the lead's outbox, after a tick. The LLM runs
+here, in the background: the simulation never waits for it.
+
+The desk is OFF in the public demo (web/server.py --public): no LLM runs there and no key is read.
 """
 
 import asyncio
@@ -206,6 +210,18 @@ class AgentDesk:
 
     async def watch(self):
         """Called after every tick: does something need the supervisor?"""
+        lead = getattr(self.hub.session, "lead", None)
+        if lead is not None:                           # the Shift Lead decides what reaches the manager
+            while lead.outbox:
+                task = lead.outbox.popleft()
+                if not self.enabled:
+                    lead.manager_busy(task, "no AI is switched on")
+                    continue
+                try:
+                    await self.submit(task["text"], source="shift lead")
+                except ValueError as error:
+                    lead.manager_busy(task, str(error))
+            return
         if not (self.enabled and self.incidents):
             return
         sim = self.hub.session.sim

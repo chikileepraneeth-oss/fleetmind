@@ -43,16 +43,21 @@ class ToolBox:
 
 
 def clean(box, incident, advice=None):
-    cell = list(incident.cell)
-    ticket = box.call("open_ticket", kind="clean", cell=cell, what=incident.kind)
-    box.call("reroute_around", cell=cell)
+    cells = [list(c) for c in (incident.cells or (incident.cell,))]
+    tickets = []
+    for cell in cells:                                   # one ticket per cell: two cleaners can share a big spill
+        ticket = box.call("open_ticket", kind="clean", cell=cell, what=incident.kind)
+        box.call("reroute_around", cell=cell)
+        if ticket:
+            tickets.append(ticket["ticket"]["id"])
     minutes = CLEAN_MINUTES.get(incident.kind, 6)
-    if ticket is None:
-        return WORK_AROUND, f"The {incident.kind} at {cell} could not get a ticket; robots plan around it."
-    incident.ticket = ticket["ticket"]["id"]
+    where = cells[0] if len(cells) == 1 else f"{len(cells)} cells from {cells[0]}"
+    if not tickets:
+        return WORK_AROUND, f"The {incident.kind} at {where} could not get a ticket; robots plan around it."
+    incident.ticket = ", ".join(tickets)
     tip = f" {advice}" if advice else ""
     return SEND_PERSON, (f"A {incident.kind} does not go away by itself: a cleaner cleans it "
-                         f"({minutes} min once there), and robots plan around {cell} meanwhile.{tip}")
+                         f"({minutes} min per cell once there), and robots plan around {where} meanwhile.{tip}")
 
 
 def robot_broken(box, incident, advice=None):

@@ -39,6 +39,10 @@ How to work:
 - pause_robot and close_aisle need a person's approval. Always fill in `reason` with one clear sentence:
   the person decides from it. If they reject, don't ask for the same thing again; find another way or stop.
 - Times are simulation minutes. Robots that are lost are being restarted by a technician; you don't need to do that.
+- With the Shift Lead, rules (playbooks) already handle spills, boxes, pallets, broken and lost robots, empty shelves
+  and low batteries: they opened tickets for cleaners and technicians (list_tickets shows them). You get what the
+  rules don't cover, or several incidents at once. Don't open the same ticket again; decide what else helps, or say
+  that the rules already did enough.
 - Keep every message short and plain: what you see, what you do, why."""
 
 PLAN_PROMPT = """Task: {task}
@@ -257,7 +261,7 @@ def _get(block, key):
 def model_from_env(env=None):
     """
     Which AI the supervisor uses, from settings (environment or .env):
-        AI_PROVIDER = claude | groq | gemini | openrouter | ollama | openai   (empty = no AI)
+        AI_PROVIDER = anthropic (or claude) | groq | gemini | openrouter | ollama | openai   (empty = no AI)
         AI_MODEL    = the model name of that provider
         AI_API_KEY  = the key (claude: ANTHROPIC_API_KEY; ollama: none)
         AI_BASE_URL = only for AI_PROVIDER=openai (any OpenAI-compatible service)
@@ -267,11 +271,11 @@ def model_from_env(env=None):
     provider = (env.get("AI_PROVIDER") or "").strip().lower()
     if not provider:
         return None
-    if provider == "claude":
+    if provider in ("claude", "anthropic"):
         return ClaudeModel(model=env.get("AI_MODEL") or MODEL)
     base = env.get("AI_BASE_URL") if provider == "openai" else PROVIDERS.get(provider)
     if not base:
-        raise ValueError(f"Unknown AI_PROVIDER '{provider}'. Use: claude, {', '.join(PROVIDERS)} or openai.")
+        raise ValueError(f"Unknown AI_PROVIDER '{provider}'. Use: anthropic, {', '.join(PROVIDERS)} or openai.")
     if not env.get("AI_MODEL"):
         raise ValueError(f"Set AI_MODEL to a model name of {provider} (see its model list).")
     return OpenAICompatibleModel(env["AI_MODEL"], base, env.get("AI_API_KEY", ""))

@@ -138,6 +138,12 @@
   #agent-form { display: flex; gap: 6px; } #agent-form input { flex: 1; }
   #agent-incidents { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
   #agent-incidents button { font-size: 12px; padding: 5px 9px; }
+  #lead-decisions { max-height: 220px; overflow-y: auto; font-size: 12px; }
+  #lead-decisions .d { padding: 4px 0; border-bottom: 1px solid var(--line); }
+  #lead-decisions .d b { font-weight: 600; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--line); }
+  .tag.rules { background: #d8f0e0; color: #1d6b3a; } .tag.llm { background: #e4ddf7; color: #4b2c99; }
+  .tag.nobody { background: #f3e2c9; color: #7a4b00; }
   #agent-info { margin: -4px 0 8px; }
   #public-banner { display: none; background: #1d2330; color: #fff; font-size: 13px; padding: 7px 16px; text-align: center; }
   #public-banner a { color: #9cc0ff; }
@@ -218,10 +224,15 @@
   </section>
 
   <aside class="side">
-    <div class="card" id="agent-card" hidden>
-      <h2>AI supervisor <span class="small" id="agent-busy"></span></h2>
-      <div class="small" id="agent-info"></div>
+    <div class="card" id="lead-card" hidden>
+      <h2>Shift Lead <span class="small" id="lead-counts"></span></h2>
       <div id="agent-incidents"></div>
+      <div class="small" id="lead-tickets"></div>
+      <div id="lead-decisions"></div>
+    </div>
+    <div class="card" id="agent-card" hidden>
+      <h2>AI manager <span class="small" id="agent-busy"></span></h2>
+      <div class="small" id="agent-info"></div>
       <div id="agent-approval"></div>
       <div id="agent-log" class="agent-log"></div>
       <form id="agent-form" autocomplete="off">
@@ -370,7 +381,7 @@
     $("agent-card").hidden = !agent.enabled;
     renderAgentInfo({ provider: agent.provider, free: agent.free, left_today: agent.left_today });
     $("agent-incidents").innerHTML = Object.entries(agent.incidents || {}).map(([kind, label]) =>
-      `<button data-kind="${kind}" title="Make this happen in the warehouse, then watch the supervisor handle it">${esc(label)}</button>`).join("");
+      `<button data-kind="${kind}" title="Make this happen in the warehouse, then watch the Shift Lead handle it">${esc(label)}</button>`).join("");
     if (agent.enabled && !$("agent-log").children.length) {
       for (const m of agent.history) onAgent(m);
     }
@@ -415,6 +426,30 @@
     renderControls();
     renderKpis();
     renderPanel();
+    renderLead(msg);
+  }
+
+  // ------------------------------------------------------------------
+  // The Shift Lead: incidents, decisions (by rules or by the AI) and tickets
+  // ------------------------------------------------------------------
+  let leadKey = "";
+  function renderLead(msg) {
+    const lead = msg.shift_lead;
+    $("lead-card").hidden = !lead;
+    if (!lead) return;
+    const c = lead.counts;
+    $("lead-counts").textContent = `· ${c.rules} by rules · ${c.llm} by the AI · ${lead.open} open`;
+    const open = (msg.tickets || []).filter((t) => t.status !== "done");
+    $("lead-tickets").textContent = open.length
+      ? "Tickets: " + open.map((t) => `${t.id} ${t.kind} ${t.what}${t.assigned ? " (" + t.assigned + ")" : ""}`).join(", ")
+      : "No open tickets.";
+    const key = JSON.stringify(lead.incidents.map((i) => [i.id, i.status, i.handled_by]));
+    if (key === leadKey) return;
+    leadKey = key;
+    $("lead-decisions").innerHTML = lead.incidents.slice().reverse().map((i) => `
+      <div class="d"><b>${esc(i.id)} ${esc(i.detail)}</b> <span class="tag ${i.handled_by}">${i.handled_by === "llm" ? "AI" : esc(i.handled_by)}</span>
+        ${i.status === "solved" ? `<span class="small">solved in ${i.minutes} min</span>` : ""}
+        <div>${esc(i.decision)}: ${esc(i.reason)}</div></div>`).join("") || '<div class="small">No incidents yet.</div>';
   }
 
   // ------------------------------------------------------------------
