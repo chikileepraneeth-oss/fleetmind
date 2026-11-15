@@ -19,7 +19,7 @@ services:
       - key: FLEETMIND_MESSAGES
         value: "off"
       - key: EMBED_FROM
-        sync: false          # your Netlify site, e.g. https://yourname.netlify.app
+        value: https://fleetmindproject.netlify.app   # only this website may show the demo in an iframe
       - key: FLEETMIND_PUBLIC_AI
         value: "on"
       - key: AI_PROVIDER
