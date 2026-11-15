@@ -289,6 +289,28 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
 app = create_app()          # for: uvicorn web.server:app (no MQTT)
 
 
+def public_model_from_env(env=None):
+    """
+    The AI for the public demo (FLEETMIND_PUBLIC_AI=on). A missing or wrong AI setting never stops
+    the demo: it prints why and runs without the supervisor.
+    """
+    from scripts.agent import model_from_env
+    env = os.environ if env is None else env
+    provider = (env.get("AI_PROVIDER") or "").strip().lower()
+    try:
+        model = model_from_env(env)
+    except ValueError as error:
+        print(f"{error} The public demo runs without the supervisor.")
+        return None
+    if model is None:
+        print("FLEETMIND_PUBLIC_AI=on but no AI_PROVIDER is set: the public demo runs without the supervisor.")
+        return None
+    if provider not in ("claude", "ollama") and not (env.get("AI_API_KEY") or "").strip():
+        print("AI_API_KEY is not set: the public demo runs without the supervisor.")
+        return None
+    return model
+
+
 def main():
     import uvicorn
 
@@ -316,14 +338,12 @@ def main():
         from dotenv import load_dotenv
         from scripts.agent import ClaudeModel, model_from_env
         load_dotenv()                                  # the AI settings from .env (git and Docker ignore .env)
-        agent_model = model_from_env()
+        agent_model = public_model_from_env() if args.public else model_from_env()
         if agent_model is None and not args.public:
             if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
                 print("The AI supervisor needs an AI: set AI_PROVIDER (e.g. groq, a free tier) with AI_MODEL and "
                       "AI_API_KEY, or ANTHROPIC_API_KEY for Claude, in a .env file. Tasks fail until then.")
             agent_model = ClaudeModel()
-        if agent_model is None:
-            print("FLEETMIND_PUBLIC_AI=on but no AI_PROVIDER is set: the public demo runs without the supervisor.")
     app = create_app(scenario=args.scenario, mqtt=args.mqtt, broker=args.broker, state_timeout=args.state_timeout,
                      public=args.public, agent_model=agent_model, public_ai=public_ai)
 

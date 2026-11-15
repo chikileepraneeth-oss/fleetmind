@@ -157,7 +157,7 @@ The full file tree is in [docs/project-structure.md](docs/project-structure.md),
 
 ## Tests
 
-There are 411 tests, and GitHub Actions runs them on every push.
+There are 412 tests, and GitHub Actions runs them on every push.
 
 ## What's next
 

@@ -100,6 +100,15 @@ def test_the_breakdown_and_rush_incidents_change_the_warehouse():
     assert len(sim.orders) == before + 12 and "12 orders" in task
 
 
+def test_missing_ai_settings_never_stop_the_public_demo():
+    assert server.public_model_from_env({"AI_PROVIDER": "groq", "AI_API_KEY": "k"}) is None       # no AI_MODEL
+    assert server.public_model_from_env({"AI_PROVIDER": "nonsense", "AI_MODEL": "m"}) is None
+    assert server.public_model_from_env({"AI_PROVIDER": "groq", "AI_MODEL": "m"}) is None         # no key
+    assert server.public_model_from_env({}) is None
+    model = server.public_model_from_env({"AI_PROVIDER": "groq", "AI_MODEL": "m", "AI_API_KEY": "k"})
+    assert model is not None and model.model == "m"
+
+
 def test_an_unknown_incident_is_refused():
     app = public_ai_app()
     with TestClient(app) as client:
