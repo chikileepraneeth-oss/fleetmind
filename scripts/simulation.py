@@ -36,6 +36,8 @@ from scripts.traffic import ReservationTable, cooperative_astar, find_wait_cycle
 
 
 BLOCK_REASONS = ["box", "box", "spill", "pallet", "person"]
+CLEAN_KINDS = {"box", "spill", "pallet"}          # with staff: a cleaner must come (scripts/shift_lead/staff.py)
+NEVER = 10 ** 9
 BLOCK_TEXT = {
     "box": "a box fell off a shelf; staff will pick it up",
     "spill": "a spill on the floor; being cleaned",
@@ -82,6 +84,9 @@ class SimConfig:
     sight_range: int = 2             # people: a robot sees a person this many cells away (not through shelves)
     people_tracking: str = "sightings"  # people: "sightings" (robots find them and tell each other) or "badges" (location tags)
     person_hold: str = "smart"       # people: "smart" (a walking person is avoided for 2 ticks) or "window" (every spot for 16)
+    staff: bool = False              # cleaners and technicians who walk to the job (scripts/shift_lead/staff.py)
+    cleaners: int = 2
+    technicians: int = 2
 
 
 class Simulation:
@@ -140,6 +145,10 @@ class Simulation:
                 raise ValueError("restocking needs movement='cooperative' (people and robots share the bookings)")
             from scripts.restock import RestockCrew
             self.crew = RestockCrew(self)
+        self.staff = None
+        if self.config.staff:
+            from scripts.shift_lead.staff import StaffDesk
+            self.staff = StaffDesk(self, self.config.cleaners, self.config.technicians)
 
         self.breakdowns = 0
         self.drops = 0
@@ -163,6 +172,8 @@ class Simulation:
         self._random_events()
         if self.crew:
             self.crew.step()                           # people / restock robots move; robots look around
+        if self.staff:
+            self.staff.step()                          # cleaners and technicians walk and work on tickets
         assignment.battery_safety(self)
         self._send_low_battery_to_charge()
         self._assign_orders()
@@ -222,6 +233,8 @@ class Simulation:
                 self._empty_since.pop(rid, None)
         for robot in self._robots():
             if robot.status == RobotStatus.ERROR and robot.robot_id not in self.lost:
+                if self.staff and not self.staff.repairing(robot.robot_id):
+                    continue                           # with staff: the repair runs only while a technician works
                 repaired, _ = robot.tick_repair()
                 if repaired:
                     self.log("repaired", robot.robot_id)
@@ -285,6 +298,8 @@ class Simulation:
         wh.block_cell(cell)
         self.blocked_until[cell] = self.tick + self.config.block_ticks
         self.block_reasons[cell] = self.story_rng.choice(BLOCK_REASONS)
+        if self.staff and self.block_reasons[cell] in CLEAN_KINDS:
+            self.blocked_until[cell] = NEVER           # with cleaners: blocked until someone cleans it
         self.blocks += 1
         self.log("cell_blocked", details=f"{cell} for {self.config.block_ticks} ticks: {self.block_reasons[cell]}")
 
@@ -1067,12 +1082,26 @@ class Simulation:
                 out[cell] = {"why": f"{rid} lost its signal here", "kind": "lost_robot", "until": None}
             elif cell in self.blocked_until:
                 kind = self.block_reasons.get(cell, "box")
-                out[cell] = {"why": BLOCK_TEXT[kind], "kind": kind, "until": self.blocked_until[cell]}
+                until = self.blocked_until[cell]
+                why = BLOCK_TEXT[kind]
+                if until >= NEVER:
+                    until, why = None, self._cleaning_text(cell, kind)
+                out[cell] = {"why": why, "kind": kind, "until": until}
         for name, cells in self.closed_aisles.items():
             reason = self.aisle_reasons.get(name) or "no reason given"
             for cell in cells:
                 out.setdefault(cell, {"why": f"aisle {name} closed: {reason}", "kind": "closed", "until": None})
         return [{"cell": list(c), **v} for c, v in sorted(out.items())]
+
+    def _cleaning_text(self, cell, kind):
+        ticket = self.staff.active("clean", cell=cell) if self.staff else None
+        if ticket is None:
+            return f"{BLOCK_TEXT[kind]}; waiting for a cleaner"
+        if ticket.status == "working":
+            return f"{kind}: {ticket.assigned} is cleaning it"
+        if ticket.status == "assigned":
+            return f"{kind}: {ticket.assigned} is on the way ({ticket.id})"
+        return f"{kind}: ticket {ticket.id}, waiting for a free cleaner"
 
     def kpis(self):
         delivered = [o for o in self.orders if o.status == OrderStatus.DELIVERED]
@@ -1108,4 +1137,6 @@ class Simulation:
             "people_reports": self.crew.reports if self.crew else 0,
             "reroutes_for_people": self.crew.reroutes if self.crew else 0,
             "stops_for_people": self.person_stops,
+            **({"tickets_open": len(self.staff.open_tickets()), "tickets_done": self.staff.done_count}
+               if self.staff else {}),
         }

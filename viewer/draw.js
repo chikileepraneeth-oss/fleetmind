@@ -171,8 +171,8 @@
           ctx.fillStyle = "#e0a800";
           ctx.fillRect(x - s / 2, y - s / 2, s, s);
           ctx.strokeStyle = "#7a5c00"; ctx.lineWidth = 1.5; ctx.strokeRect(x - s / 2, y - s / 2, s, s);
-        } else {                                       // a person: body and head
-          ctx.fillStyle = "#2e9e5b";
+        } else {                                       // a person: body and head (cleaner blue, technician orange)
+          ctx.fillStyle = { cleaner: "#2a7fd4", technician: "#ff7a00" }[p.kind] || "#2e9e5b";
           ctx.beginPath(); ctx.arc(x, y + cell * 0.08, cell * 0.22, 0, Math.PI * 2); ctx.fill();
           ctx.fillStyle = "#e0b48f";
           ctx.beginPath(); ctx.arc(x, y - cell * 0.2, cell * 0.12, 0, Math.PI * 2); ctx.fill();

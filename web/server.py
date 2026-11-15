@@ -141,7 +141,7 @@ def make_broker(mqtt, broker="127.0.0.1:1883"):
 
 
 def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0.1:1883", state_timeout=0.5,
-               public=False, agent_model=None, incidents=True, public_ai=False):
+               public=False, agent_model=None, incidents=True, public_ai=False, shift_lead=False):
     """
     Build a fresh app with its own session (tests use this to start clean). public=True: the public demo.
     agent_model: the AI supervisor's model (scripts/agent.py); None = no agent.
@@ -151,7 +151,7 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
     bus, name = make_broker(mqtt, broker)
     robots = "external" if mqtt == "external" else "inproc"
     session = LiveSession(str(layout_path), scenario=scenario, broker=bus, robots=robots, broker_name=name,
-                          link_options={"state_timeout": state_timeout})
+                          link_options={"state_timeout": state_timeout}, shift_lead=shift_lead)
     session.public = public
     hub = Hub(session, public=public)
     if public:

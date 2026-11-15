@@ -133,7 +133,7 @@ class AgentDesk:
             cells = aisles[name]["cells"][1:4]
             for cell in cells:
                 sim.warehouse.block_cell(cell)
-                sim.blocked_until[cell] = sim.tick + SPILL_TICKS
+                sim.blocked_until[cell] = sim.tick + SPILL_TICKS if not sim.staff else 10 ** 9   # staff: until cleaned
                 sim.block_reasons[cell] = "spill"
             sim.log("cell_blocked", details=f"a spill in aisle {name}: {cells} for {SPILL_TICKS} ticks")
             return (f"INCIDENT: a spill blocks aisle {name} (cells {cells}) for about {SPILL_TICKS} minutes. "
