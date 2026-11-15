@@ -290,7 +290,7 @@ class FleetTools:
                        "cell": list(m.position) if m.position else None} for m in staff.members],
         }
 
-    def open_ticket(self, kind, cell=None, robot_id=None, shelf=None, what=""):
+    def open_ticket(self, kind, cell=None, robot_id=None, shelf=None, what="", prefer="nearest"):
         """
         A job for a person: clean (a spill, box or pallet at a cell), repair (a broken robot),
         restart (a lost robot) or restock (an empty shelf). Asking twice for the same job is safe:
@@ -299,12 +299,14 @@ class FleetTools:
         sim = self._open_day()
         staff = self._staff()
         wh = sim.warehouse
+        if prefer not in ("nearest", "from desk"):
+            raise ToolInputError("prefer must be 'nearest' (the closest free person) or 'from desk'.")
         if kind == "clean":
             cell = self._cell(cell)
             if cell not in wh.blocked:
                 raise ToolInputError(f"Cell {list(cell)} is not blocked, so there is nothing to clean.")
             what = what or sim.block_reasons.get(cell, "")
-            ticket = staff.open_ticket("clean", cell, what=what)
+            ticket = staff.open_ticket("clean", cell, what=what, prefer=prefer)
         elif kind in ("repair", "restart"):
             rid = self._robot_id(robot_id)
             robot = wh.robots[rid]

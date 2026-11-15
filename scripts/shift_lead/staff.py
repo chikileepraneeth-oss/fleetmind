@@ -54,13 +54,14 @@ class WorkTicket:
     shelf: str = None
     started: int = None                        # tick when the person started working
     start_point: str = None                    # "desk" or "on the way back" (where the person started)
+    prefer: str = "nearest"                    # "nearest" free person, or only one "from desk"
     note: str = ""
 
     def to_dict(self):
         return {"id": self.id, "kind": self.kind, "cell": list(self.cell), "created": self.created,
                 "assigned": self.assigned, "status": self.status, "done": self.done, "what": self.what,
                 "robot": self.robot, "shelf": self.shelf, "started": self.started,
-                "start_point": self.start_point, "note": self.note}
+                "start_point": self.start_point, "prefer": self.prefer, "note": self.note}
 
 
 @dataclass
@@ -94,7 +95,7 @@ class StaffDesk:
     # Tickets
     # ------------------------------------------------------------------
 
-    def open_ticket(self, kind, cell=None, what="", robot=None, shelf=None, note=""):
+    def open_ticket(self, kind, cell=None, what="", robot=None, shelf=None, note="", prefer="nearest"):
         """A new ticket, or the open one that already exists for the same job (so asking twice is safe)."""
         if kind not in KINDS:
             raise ValueError(f"Unknown ticket kind '{kind}'. Use: {', '.join(KINDS)}.")
@@ -102,7 +103,7 @@ class StaffDesk:
         if same:
             return same
         ticket = WorkTicket(f"W{self.next_number}", kind, tuple(cell), self.sim.tick,
-                            what=what or robot or shelf or "", robot=robot, shelf=shelf, note=note)
+                            what=what or robot or shelf or "", robot=robot, shelf=shelf, note=note, prefer=prefer)
         self.next_number += 1
         self.tickets.append(ticket)
         self.sim.log("ticket_opened", robot or "", f"{ticket.id} {kind} {ticket.what} at {ticket.cell}")
@@ -183,6 +184,8 @@ class StaffDesk:
                 continue
             spawn = self._free_dock()
             choices = [m for m in free if m.task == "returning" or spawn is not None]
+            if t.prefer == "from desk":
+                choices = [m for m in choices if m.task == "free"]       # only someone who is back at the desk
             if not choices:
                 continue
             m = min(choices, key=lambda x: (self._distance(x.position or spawn, t.cell), x.task != "returning", x.id))

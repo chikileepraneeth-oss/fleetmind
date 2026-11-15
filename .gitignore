@@ -13,3 +13,6 @@ dist/
 viewer/recordings.js
 # Claude Code's working copies of this repository
 .claude/worktrees/
+# written by the live website (the Shift Lead's case log and daily reports)
+data/incidents.csv
+data/reports/

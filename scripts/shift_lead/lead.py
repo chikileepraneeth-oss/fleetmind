@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 
 from scripts.classes import RobotStatus
 from scripts.fleet_tools import FleetTools
+from scripts.shift_lead.caselog import CaseLog
 from scripts.shift_lead.playbooks import NEEDS_MANAGER, PLAYBOOKS, run_playbook
 from scripts.shift_lead.staff import CLEANABLE
 
@@ -44,6 +45,8 @@ class Incident:
     reason: str = ""
     handled_by: str = ""                       # "rules" or "llm" (or "nobody" when no manager may be asked)
     actions: list = field(default_factory=list)
+    option: str = None                         # which option the playbook used (the case log learns from it)
+    advice: str = ""                           # why that option (from earlier cases)
     ticket: str = None
     status: str = "open"                       # open, solved
     solved: int = None
@@ -60,13 +63,14 @@ class Incident:
                 "cells": [list(c) for c in self.cells],
                 "robot": self.robot, "shelf": self.shelf, "detail": self.detail, "decision": self.decision,
                 "reason": self.reason, "handled_by": self.handled_by, "ticket": self.ticket,
+                "option": self.option, "advice": self.advice,
                 "status": self.status, "solved": self.solved, "minutes": self.minutes,
                 "late_caused": self.late_caused, "actions": self.actions}
 
 
 class ShiftLead:
 
-    def __init__(self, session, manager_allowed=False):
+    def __init__(self, session, manager_allowed=False, caselog=None):
         """
         session: web.session.LiveSession (its simulation changes on reset; the lead follows).
         manager_allowed: an LLM may be asked (web/agent_desk.py takes the tasks from `outbox`).
@@ -76,6 +80,7 @@ class ShiftLead:
         self.tools = FleetTools(session)
         self.manager_allowed = manager_allowed
         self.outbox = deque()                          # tasks for the manager: {"text", "incidents", "tick"}
+        self.caselog = caselog or CaseLog()            # earlier incidents and how well each option worked
         self.sim = None
         self.attach()
 
@@ -205,8 +210,8 @@ class ShiftLead:
                 self.counts["nobody"] += 1
 
     def advice(self, incident):
-        """Advice from earlier cases (the case log); nothing yet."""
-        return None
+        """Which option worked best for this kind of incident so far (the case log), or None."""
+        return self.caselog.best(incident.kind)
 
     def _check_solved(self):
         sim, wh = self.sim, self.sim.warehouse
@@ -237,7 +242,8 @@ class ShiftLead:
                 self.on_solved(i)
 
     def on_solved(self, incident):
-        """Hook for the case log."""
+        """Every solved incident goes into the case log, so the next decision can learn from it."""
+        self.caselog.add(incident, scenario=self.session.scenario, seed=self.session.seed)
 
     def _open(self, kind, cell=None, robot=None, shelf=None):
         for i in self.incidents:

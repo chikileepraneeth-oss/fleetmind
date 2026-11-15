@@ -22,7 +22,7 @@ class FakeTools:
     def _log(self, name, **kw):
         self.calls.append((name, kw))
 
-    def open_ticket(self, kind, cell=None, robot_id=None, shelf=None, what=""):
+    def open_ticket(self, kind, cell=None, robot_id=None, shelf=None, what="", prefer="nearest"):
         self._log("open_ticket", kind=kind, cell=cell, robot_id=robot_id, shelf=shelf)
         return {"ticket": {"id": "W1", "kind": kind}}
 

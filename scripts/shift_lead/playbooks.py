@@ -42,11 +42,19 @@ class ToolBox:
             return None
 
 
+def _follow(incident, advice, default):
+    """Use the option the case log advises (or the default), and remember why."""
+    incident.option = advice["option"] if advice else default
+    incident.advice = advice["why"] if advice else ""
+    return incident.option
+
+
 def clean(box, incident, advice=None):
     cells = [list(c) for c in (incident.cells or (incident.cell,))]
+    prefer = _follow(incident, advice, "nearest")
     tickets = []
     for cell in cells:                                   # one ticket per cell: two cleaners can share a big spill
-        ticket = box.call("open_ticket", kind="clean", cell=cell, what=incident.kind)
+        ticket = box.call("open_ticket", kind="clean", cell=cell, what=incident.kind, prefer=prefer)
         box.call("reroute_around", cell=cell)
         if ticket:
             tickets.append(ticket["ticket"]["id"])
@@ -55,24 +63,28 @@ def clean(box, incident, advice=None):
     if not tickets:
         return WORK_AROUND, f"The {incident.kind} at {where} could not get a ticket; robots plan around it."
     incident.ticket = ", ".join(tickets)
-    tip = f" {advice}" if advice else ""
+    tip = f" Cleaner: {prefer}. {advice['why']}" if advice else ""
     return SEND_PERSON, (f"A {incident.kind} does not go away by itself: a cleaner cleans it "
                          f"({minutes} min per cell once there), and robots plan around {where} meanwhile.{tip}")
 
 
 def robot_broken(box, incident, advice=None):
     rid = incident.robot
+    option = _follow(incident, advice, "give away")
     robot = box.call("get_robot", robot_id=rid)
     ticket = box.call("open_ticket", kind="repair", robot_id=rid)
     if ticket:
         incident.ticket = ticket["ticket"]["id"]
     gave = ""
-    if robot and robot.get("order") and not robot.get("carrying"):
+    if robot and robot.get("order") and not robot.get("carrying") and option == "give away":
         if box.call("reassign_order", robot_id=rid, reason="it broke down"):
             gave = f" Its order {robot['order']['id']} goes to another robot, so it doesn't wait for the repair."
+    elif robot and robot.get("order") and not robot.get("carrying"):
+        gave = f" It keeps its order {robot['order']['id']} until the repair is done."
     elif robot and robot.get("carrying"):
         gave = f" It keeps {robot['carrying']} and delivers it after the repair."
-    return SEND_PERSON, f"{rid} can't repair itself: a technician walks there.{gave}"
+    tip = f" {advice['why']}" if advice else ""
+    return SEND_PERSON, f"{rid} can't repair itself: a technician walks there.{gave}{tip}"
 
 
 def robot_lost(box, incident, advice=None):
