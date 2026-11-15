@@ -102,6 +102,7 @@ class ClaudeModel:
         import anthropic
         self.client = anthropic.AsyncAnthropic()        # API key from ANTHROPIC_API_KEY (or `ant auth login`)
         self.model = model
+        self.label = model
         self.effort = effort
 
     async def create(self, system, messages, tools=None):
@@ -145,6 +146,137 @@ class ScriptedModel:
         return Reply(blocks, stop_reason="tool_use", usage=Usage(100, 20))
 
 
+PROVIDERS = {
+    "groq": "https://api.groq.com/openai/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "ollama": "http://localhost:11434/v1",
+}
+FREE = {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0}
+MAX_WAIT_SECONDS = 30              # a free tier says "too many requests": wait at most this long per try
+MAX_TRIES = 4
+
+
+class OpenAICompatibleModel:
+    """
+    Any model behind an OpenAI-compatible chat API: free tiers of Groq, Gemini or OpenRouter,
+    or a model running on your own computer with Ollama. Tool calls are translated both ways,
+    so the agent works the same as with Claude.
+    """
+
+    def __init__(self, model, base_url, api_key="", prices=None, max_tokens=2048, transport=None, timeout=120):
+        import httpx
+        self.model = model
+        self.label = model
+        self.url = base_url.rstrip("/") + "/chat/completions"
+        self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self.prices = prices or FREE
+        self.max_tokens = max_tokens
+        self.client = httpx.AsyncClient(timeout=timeout, transport=transport)
+
+    async def create(self, system, messages, tools=None):
+        import asyncio
+        body = {"model": self.model, "max_tokens": self.max_tokens,
+                "messages": [{"role": "system", "content": system}] + _to_openai(messages)}
+        if tools:
+            body["tools"] = [{"type": "function", "function": {
+                "name": t["name"], "description": t["description"], "parameters": t["input_schema"]}} for t in tools]
+            body["tool_choice"] = "auto"
+        for attempt in range(MAX_TRIES):
+            response = await self.client.post(self.url, json=body, headers=self.headers)
+            if response.status_code == 429 and attempt < MAX_TRIES - 1:
+                wait = _retry_after(response)
+                if wait <= MAX_WAIT_SECONDS:
+                    await asyncio.sleep(wait)
+                    continue
+            break
+        if response.status_code == 429:
+            raise AgentError("The free AI quota is used up for now. Try again later.")
+        if response.status_code in (401, 403):
+            raise AgentError("The AI key is missing or wrong (check AI_API_KEY).")
+        if response.status_code >= 400:
+            raise AgentError(f"The AI service answered {response.status_code}: {response.text[:200]}")
+        return _from_openai(response.json())
+
+
+def _retry_after(response):
+    try:
+        return float(response.headers.get("retry-after", "5"))
+    except ValueError:
+        return 5.0
+
+
+def _to_openai(messages):
+    """The agent's messages (Anthropic style: content blocks) -> OpenAI chat messages."""
+    out = []
+    for message in messages:
+        content = message["content"]
+        if isinstance(content, str):
+            out.append({"role": message["role"], "content": content})
+            continue
+        if message["role"] == "user":
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    text = block["content"] if not block.get("is_error") else "ERROR: " + block["content"]
+                    out.append({"role": "tool", "tool_call_id": block["tool_use_id"], "content": text})
+                elif isinstance(block, dict) and block.get("type") == "text":
+                    out.append({"role": "user", "content": block["text"]})
+            continue
+        text = " ".join(_get(b, "text") for b in content if _get(b, "type") == "text" and _get(b, "text"))
+        calls = [{"id": _get(b, "id"), "type": "function",
+                  "function": {"name": _get(b, "name"), "arguments": json.dumps(_get(b, "input") or {})}}
+                 for b in content if _get(b, "type") == "tool_use"]
+        entry = {"role": "assistant", "content": text or None}
+        if calls:
+            entry["tool_calls"] = calls
+        out.append(entry)
+    return out
+
+
+def _from_openai(data):
+    """An OpenAI chat answer -> the agent's Reply (text and tool_use blocks)."""
+    choice = data["choices"][0]
+    message = choice.get("message") or {}
+    blocks = [Block("text", text=message["content"])] if message.get("content") else []
+    for call in message.get("tool_calls") or []:
+        try:
+            args = json.loads(call["function"].get("arguments") or "{}")
+        except ValueError:
+            args = {}                                      # a broken tool call: the tool answers with an error
+        blocks.append(Block("tool_use", id=call.get("id") or f"call_{len(blocks)}",
+                            name=call["function"]["name"], input=args if isinstance(args, dict) else {}))
+    usage = data.get("usage") or {}
+    stop = "tool_use" if any(b.type == "tool_use" for b in blocks) else "end_turn"
+    return Reply(blocks, stop, Usage(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)))
+
+
+def _get(block, key):
+    return block.get(key) if isinstance(block, dict) else getattr(block, key, None)
+
+
+def model_from_env(env=None):
+    """
+    Which AI the supervisor uses, from settings (environment or .env):
+        AI_PROVIDER = claude | groq | gemini | openrouter | ollama | openai   (empty = no AI)
+        AI_MODEL    = the model name of that provider
+        AI_API_KEY  = the key (claude: ANTHROPIC_API_KEY; ollama: none)
+        AI_BASE_URL = only for AI_PROVIDER=openai (any OpenAI-compatible service)
+    """
+    import os
+    env = os.environ if env is None else env
+    provider = (env.get("AI_PROVIDER") or "").strip().lower()
+    if not provider:
+        return None
+    if provider == "claude":
+        return ClaudeModel(model=env.get("AI_MODEL") or MODEL)
+    base = env.get("AI_BASE_URL") if provider == "openai" else PROVIDERS.get(provider)
+    if not base:
+        raise ValueError(f"Unknown AI_PROVIDER '{provider}'. Use: claude, {', '.join(PROVIDERS)} or openai.")
+    if not env.get("AI_MODEL"):
+        raise ValueError(f"Set AI_MODEL to a model name of {provider} (see its model list).")
+    return OpenAICompatibleModel(env["AI_MODEL"], base, env.get("AI_API_KEY", ""))
+
+
 # ---------------------------------------------------------------------------
 # The agent
 # ---------------------------------------------------------------------------
@@ -159,6 +291,8 @@ class Result:
     approvals: list = field(default_factory=list)     # every approval: tool, input, approved, note
     cost_usd: float = 0.0
     tool_calls: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
 
 
 class FleetAgent:
@@ -183,10 +317,10 @@ class FleetAgent:
                 self.read_only = {t.name for t in listed if t.annotations and t.annotations.read_only_hint}
                 self.risky = {t.name for t in listed if t.annotations and t.annotations.destructive_hint}
                 await self._run(client, task, result)
-        except AgentError as error:
-            result.outcome, result.summary = "error", str(error)
         except Exception as error:                     # the agent must never take the website down
-            result.outcome, result.summary = "error", f"{type(error).__name__}: {error}"
+            error = _unwrap(error)                     # errors inside the MCP client come wrapped in a group
+            result.outcome = "error"
+            result.summary = str(error) if isinstance(error, AgentError) else f"{type(error).__name__}: {error}"
         await self.report("finished", f"{result.outcome.upper()}: {result.summary}", {
             "outcome": result.outcome, "cost_usd": round(result.cost_usd, 4), "tool_calls": result.tool_calls})
         return result
@@ -256,7 +390,7 @@ class FleetAgent:
                 return f"A person REJECTED this action{': ' + note if note else ''}. Do not ask again for the same thing.", True
         result.tool_calls += 1
         answer = await client.call_tool(name, args)
-        output = "\n".join(c.text for c in answer.content if c.type == "text")
+        output = _compact("\n".join(c.text for c in answer.content if c.type == "text"))
         failed = bool(answer.is_error)
         result.actions.append({"tool": name, "input": args, "ok": not failed, "result": output[:300]})
         await self.report("tool", f"{name}({_short(args)}) -> {'ERROR ' if failed else ''}{_short_text(output)}",
@@ -265,21 +399,40 @@ class FleetAgent:
 
     async def _check(self, client, task, result):
         status = await client.call_tool("get_fleet_status", {})
-        status_text = "\n".join(c.text for c in status.content if c.type == "text")
+        status_text = _compact("\n".join(c.text for c in status.content if c.type == "text"))
         prompt = CHECK_PROMPT.format(task=task, plan=result.plan, status=status_text[:6000],
                                      actions=json.dumps([{k: a[k] for k in ("tool", "input", "ok")} for a in result.actions]))
         reply = await self.model.create("You are a strict, fair reviewer.", [{"role": "user", "content": prompt}])
         self._count(reply, result)
         return " ".join(b.text for b in reply.content if b.type == "text").strip() or "NOT DONE: no answer"
 
-    @staticmethod
-    def _count(reply, result):
+    def _count(self, reply, result):
         u = reply.usage
+        prices = getattr(self.model, "prices", PRICE_PER_MTOK)
+        tokens_in = getattr(u, "input_tokens", 0) or 0
+        tokens_out = getattr(u, "output_tokens", 0) or 0
+        result.tokens_in += tokens_in
+        result.tokens_out += tokens_out
         result.cost_usd += (
-            (getattr(u, "input_tokens", 0) or 0) * PRICE_PER_MTOK["input"]
-            + (getattr(u, "output_tokens", 0) or 0) * PRICE_PER_MTOK["output"]
-            + (getattr(u, "cache_read_input_tokens", 0) or 0) * PRICE_PER_MTOK["cache_read"]
-            + (getattr(u, "cache_creation_input_tokens", 0) or 0) * PRICE_PER_MTOK["cache_write"]) / 1_000_000
+            tokens_in * prices["input"]
+            + tokens_out * prices["output"]
+            + (getattr(u, "cache_read_input_tokens", 0) or 0) * prices["cache_read"]
+            + (getattr(u, "cache_creation_input_tokens", 0) or 0) * prices["cache_write"]) / 1_000_000
+
+
+def _unwrap(error):
+    """The first real error inside (nested) exception groups."""
+    while isinstance(error, BaseExceptionGroup) and error.exceptions:
+        error = error.exceptions[0]
+    return error
+
+
+def _compact(text):
+    """Tool results are JSON: the same data without spaces and line breaks costs about half the tokens."""
+    try:
+        return json.dumps(json.loads(text), separators=(",", ":"), ensure_ascii=False)
+    except (ValueError, TypeError):
+        return text
 
 
 def _tool_result(call, output, failed):

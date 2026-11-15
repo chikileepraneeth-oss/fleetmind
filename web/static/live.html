@@ -136,6 +136,9 @@
   #agent-approval .ask code { display: block; margin: 6px 0; white-space: pre-wrap; font-size: 12px; }
   #agent-approval input, #agent-form input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
   #agent-form { display: flex; gap: 6px; } #agent-form input { flex: 1; }
+  #agent-incidents { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  #agent-incidents button { font-size: 12px; padding: 5px 9px; }
+  #agent-info { margin: -4px 0 8px; }
   #public-banner { display: none; background: #1d2330; color: #fff; font-size: 13px; padding: 7px 16px; text-align: center; }
   #public-banner a { color: #9cc0ff; }
 </style>
@@ -217,6 +220,8 @@
   <aside class="side">
     <div class="card" id="agent-card" hidden>
       <h2>AI supervisor <span class="small" id="agent-busy"></span></h2>
+      <div class="small" id="agent-info"></div>
+      <div id="agent-incidents"></div>
       <div id="agent-approval"></div>
       <div id="agent-log" class="agent-log"></div>
       <form id="agent-form" autocomplete="off">
@@ -299,6 +304,7 @@
     if (msg.event === "approval_closed") { delete openApprovals[d.id]; renderApprovals(); }
     if (msg.event === "task") $("agent-busy").textContent = "· working";
     if (msg.event === "finished") $("agent-busy").textContent = "";
+    if (d.left_today != null) renderAgentInfo({ left_today: d.left_today });
     if (msg.event === "approval_closed" || msg.event === "approval") {
       if (msg.event === "approval_closed") addAgentLine(msg.tick, "approval", `${d.approved ? "✅ Approved" : "⛔ Rejected"}${d.note ? ": " + d.note : ""}`);
       return;
@@ -345,9 +351,26 @@
     $("agent-input").value = "";
   });
 
+  let agentInfo = {};
+  function renderAgentInfo(update) {
+    Object.assign(agentInfo, update);
+    const parts = [];
+    if (agentInfo.provider) parts.push(`AI: ${agentInfo.provider}${agentInfo.free ? " (free)" : ""}`);
+    if (agentInfo.left_today != null) parts.push(`${agentInfo.left_today} AI tasks left today`);
+    $("agent-info").textContent = parts.join(" · ");
+  }
+
+  $("agent-incidents").addEventListener("click", (e) => {
+    const button = e.target.closest("button[data-kind]");
+    if (button) send({ type: "agent_incident", kind: button.dataset.kind });
+  });
+
   function onHello(msg) {
     const agent = msg.agent || { enabled: false, history: [] };
     $("agent-card").hidden = !agent.enabled;
+    renderAgentInfo({ provider: agent.provider, free: agent.free, left_today: agent.left_today });
+    $("agent-incidents").innerHTML = Object.entries(agent.incidents || {}).map(([kind, label]) =>
+      `<button data-kind="${kind}" title="Make this happen in the warehouse, then watch the supervisor handle it">${esc(label)}</button>`).join("");
     if (agent.enabled && !$("agent-log").children.length) {
       for (const m of agent.history) onAgent(m);
     }

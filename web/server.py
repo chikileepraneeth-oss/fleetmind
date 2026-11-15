@@ -61,6 +61,7 @@ PUBLIC_MAX_CLIENTS = 100                             # public demo: open tabs at
 PUBLIC_COMMANDS_PER_SECOND = 3                       # public demo: commands per tab (buttons, not spam)
 PUBLIC_MAX_SPEED = 30                                # public demo: ticks per second
 PUBLIC_NEXT_DAY_AFTER = 15                           # public demo: seconds the closed shutter shows before a new day
+PUBLIC_AI_COOLDOWN = 120                             # public demo: seconds between AI tasks from one tab
 HEARTBEAT_POLL = 0.5                                 # while paused over MQTT: check heartbeats this often
 
 
@@ -140,10 +141,12 @@ def make_broker(mqtt, broker="127.0.0.1:1883"):
 
 
 def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0.1:1883", state_timeout=0.5,
-               public=False, agent_model=None, incidents=True):
+               public=False, agent_model=None, incidents=True, public_ai=False):
     """
     Build a fresh app with its own session (tests use this to start clean). public=True: the public demo.
-    agent_model: the AI supervisor's model (scripts/agent.py ClaudeModel or ScriptedModel); None = no agent.
+    agent_model: the AI supervisor's model (scripts/agent.py); None = no agent.
+    public_ai: the public demo may use the supervisor too (with a free AI: a daily limit, incident
+    buttons, one task per tab every PUBLIC_AI_COOLDOWN seconds). /mcp stays closed to the public.
     """
     bus, name = make_broker(mqtt, broker)
     robots = "external" if mqtt == "external" else "inproc"
@@ -154,15 +157,18 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
     if public:
         session.start()                            # the demo runs by itself
 
-    mcp = None if public else build_mcp(hub)
-    mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp") if mcp else None
-    hub.desk = AgentDesk(hub, mcp, None if public or mcp is None else agent_model, incidents=incidents)
+    use_ai = agent_model is not None and (not public or public_ai)
+    mcp = build_mcp(hub) if (not public or use_ai) else None          # the supervisor's tools, in the server
+    mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp") if mcp and not public else None
+    hub.desk = AgentDesk(hub, mcp, agent_model if use_ai else None,
+                         incidents=incidents and not public, public=public,
+                         daily_tasks=int(os.environ.get("FLEETMIND_AI_TASKS_PER_DAY", "20")))
 
     @asynccontextmanager
     async def lifespan(app):
         task = asyncio.create_task(hub.ticker())   # start the ticker when the server starts
         hub.desk.start()
-        if mcp:
+        if mcp_app:
             async with mcp.session_manager.run():  # and the MCP server's sessions
                 yield
         else:
@@ -216,6 +222,7 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
             return
         await ws.accept()
         recent = []                                  # times of this tab's last commands (public limit)
+        last_ai = -10 ** 9                           # when this tab last started an AI task
         async with hub.lock:
             hello = hub.session.hello_message()
             hello["agent"] = hub.desk.hello()
@@ -238,8 +245,23 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
                             value = command.get("value")
                             if isinstance(value, (int, float)) and not isinstance(value, bool):
                                 command["value"] = min(value, PUBLIC_MAX_SPEED)
-                    if isinstance(command, dict) and command.get("type") == "agent_ask":
-                        await hub.desk.submit(command.get("text", ""))
+                    kind = command.get("type") if isinstance(command, dict) else None
+                    if kind in ("agent_ask", "agent_incident"):
+                        now = asyncio.get_running_loop().time()
+                        if public and now - last_ai < PUBLIC_AI_COOLDOWN:
+                            wait = int(PUBLIC_AI_COOLDOWN - (now - last_ai))
+                            raise ValueError(f"One AI task every {PUBLIC_AI_COOLDOWN // 60} minutes per visitor: "
+                                             f"try again in {wait} s.")
+                        if kind == "agent_ask":
+                            await hub.desk.submit(command.get("text", ""))
+                        else:
+                            hub.desk.check_can_take()
+                            async with hub.lock:
+                                task = hub.desk.make_incident(command.get("kind"))
+                                state = hub.session.state_message()
+                            await hub.broadcast([state])
+                            await hub.desk.submit(task, source="visitor")
+                        last_ai = now
                         continue
                     if isinstance(command, dict) and command.get("type") == "agent_answer":
                         hub.desk.answer(command.get("id"), command.get("ok") is True, command.get("note", ""))
@@ -274,7 +296,8 @@ def main():
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8000)))
     parser.add_argument("--host", default="127.0.0.1", help="0.0.0.0 to be reachable from outside (a container)")
     parser.add_argument("--agent", action="store_true",
-                        help="switch on the AI supervisor (Claude; needs ANTHROPIC_API_KEY). Never in --public.")
+                        help="switch on the AI supervisor. The AI comes from AI_PROVIDER / AI_MODEL / AI_API_KEY "
+                             "(environment or .env); without AI_PROVIDER: Claude with ANTHROPIC_API_KEY")
     parser.add_argument("--public", action="store_true",
                         help="the public demo: one shared warehouse, no MCP tools, no API keys, limits")
     parser.add_argument("--no-browser", action="store_true", help="don't open the browser")
@@ -288,16 +311,21 @@ def main():
                              "for a moment before they answer: use 3)")
     args = parser.parse_args()
     agent_model = None
-    if args.agent and not args.public:
+    public_ai = args.public and os.environ.get("FLEETMIND_PUBLIC_AI", "off").lower() == "on"
+    if (args.agent and not args.public) or public_ai:
         from dotenv import load_dotenv
-        from scripts.agent import ClaudeModel
-        load_dotenv()                                  # ANTHROPIC_API_KEY from .env (git and Docker ignore .env)
-        if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-            print("The AI supervisor needs an Anthropic API key: put ANTHROPIC_API_KEY=... in a .env file "
-                  "in the fleetmind folder (or run `ant auth login`). Starting anyway; tasks will fail until then.")
-        agent_model = ClaudeModel()
+        from scripts.agent import ClaudeModel, model_from_env
+        load_dotenv()                                  # the AI settings from .env (git and Docker ignore .env)
+        agent_model = model_from_env()
+        if agent_model is None and not args.public:
+            if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+                print("The AI supervisor needs an AI: set AI_PROVIDER (e.g. groq, a free tier) with AI_MODEL and "
+                      "AI_API_KEY, or ANTHROPIC_API_KEY for Claude, in a .env file. Tasks fail until then.")
+            agent_model = ClaudeModel()
+        if agent_model is None:
+            print("FLEETMIND_PUBLIC_AI=on but no AI_PROVIDER is set: the public demo runs without the supervisor.")
     app = create_app(scenario=args.scenario, mqtt=args.mqtt, broker=args.broker, state_timeout=args.state_timeout,
-                     public=args.public, agent_model=agent_model)
+                     public=args.public, agent_model=agent_model, public_ai=public_ai)
 
     url = f"http://127.0.0.1:{args.port}"
     if args.mqtt == "memory":
@@ -305,7 +333,7 @@ def main():
     else:
         mode = f"over MQTT ({args.mqtt}, broker {args.broker})" if args.mqtt else "local"
     mode += ", PUBLIC demo (no tools, no keys)" if args.public else ""
-    mode += ", AI supervisor ON" if agent_model else ""
+    mode += f", AI supervisor ON ({getattr(agent_model, 'label', '')})" if agent_model else ""
     print(f"FleetMind live: {url}   {mode}   (press Ctrl+C to stop)")
     if not args.no_browser:
         threading.Timer(1.0, webbrowser.open, args=[url]).start()   # give the server a second to start

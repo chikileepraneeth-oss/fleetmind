@@ -13,7 +13,9 @@ that keeps a WebSocket open to every visitor.
 3. **New > Blueprint**, pick the `fleetmind` repository. Render reads `render.yaml`:
    a Docker web service `fleetmind-demo` on the free plan.
 4. Render asks for **EMBED_FROM**: your Netlify address, e.g. `https://yourname.netlify.app`
-   (only that website may show the demo inside its pages). Click **Apply**.
+   (only that website may show the demo inside its pages). It also asks for **AI_MODEL** and
+   **AI_API_KEY** for the free AI supervisor (see below). Leave them empty to run without it.
+   Click **Apply**.
 5. Wait for the first build (5–10 minutes). The demo is at
    `https://fleetmind-demo.onrender.com` (Render shows the exact address), the 3D view at `/3d`.
 
@@ -48,4 +50,16 @@ Then deploy your site on Netlify as usual (push to its repository, or drag the f
 ## What visitors can and can't do
 
 They share one warehouse: Start, Pause, scenarios, random days, the 2D and 3D views.
-There are no MCP tools, no AI and no API key on Render. Never add an `ANTHROPIC_API_KEY` there.
+There are no MCP tools on Render (`/mcp` answers 404).
+
+With a free AI key, visitors can also start an incident with a button and watch the AI
+supervisor handle it. `render.yaml` sets `FLEETMIND_PUBLIC_AI=on`, `AI_PROVIDER=groq` and
+`FLEETMIND_AI_TASKS_PER_DAY=10` (tasks a day for everyone together), and each visitor can start
+one AI task every 2 minutes.
+
+1. Make a free account at console.groq.com and create an API key.
+2. Pick a model on its Models page that supports tool use, and put its name in **AI_MODEL**.
+3. Put the key in **AI_API_KEY**. Render keeps it secret; it is never in the repository or the image.
+
+Without a key the demo runs as before, without the supervisor. Never put a paid key
+(like `ANTHROPIC_API_KEY`) on Render, because anyone who opens the demo could spend it.

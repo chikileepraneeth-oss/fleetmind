@@ -15,19 +15,38 @@ The desk is OFF in the public demo (web/server.py --public), so nobody can use t
 import asyncio
 import uuid
 
+import datetime
+import random
+
 from scripts.agent import FleetAgent
+from scripts.classes import Priority, RobotStatus
+from scripts.fleet_tools import find_aisles
 
 APPROVAL_TIMEOUT = 600             # seconds
 MAX_WAITING_TASKS = 3
 INCIDENT_COOLDOWN = 120            # ticks before the same kind of incident starts the agent again
 LATE_ORDERS_INCIDENT = 5           # orders waiting past their deadline
 KEEP_HISTORY = 60
+PUBLIC_DAILY_TASKS = 20            # public demo: AI tasks per day for everyone together (stays in a free quota)
+SPILL_TICKS = 90
+RUSH_ORDERS = 12
+
+# the incidents a visitor of the public demo can start with a button
+INCIDENT_BUTTONS = {
+    "spill": "A spill blocks an aisle",
+    "breakdowns": "Two robots break down",
+    "rush": "A big delivery arrives",
+}
 
 
 class AgentDesk:
 
-    def __init__(self, hub, mcp_server, model, incidents=True):
+    def __init__(self, hub, mcp_server, model, incidents=True, public=False, daily_tasks=PUBLIC_DAILY_TASKS):
         self.hub = hub
+        self.public = public                   # public demo: a daily limit, tasks start from buttons
+        self.daily_tasks = daily_tasks
+        self.tasks_today, self.day = 0, datetime.date.today()
+        self.rng = random.Random()
         self.mcp_server = mcp_server
         self.model = model                     # None = no agent (no key / public demo)
         self.incidents = incidents
@@ -45,7 +64,27 @@ class AgentDesk:
         return self.model is not None
 
     def hello(self):
-        return {"enabled": self.enabled, "history": self.history[-40:], "busy": self.current}
+        return {"enabled": self.enabled, "history": self.history[-40:], "busy": self.current,
+                "provider": getattr(self.model, "label", "") if self.model else "",
+                "free": bool(self.model) and getattr(self.model, "prices", {}).get("output", 1) == 0,
+                "public": self.public, "left_today": self.left_today(), "incidents": INCIDENT_BUTTONS}
+
+    def left_today(self):
+        """Public demo: AI tasks still allowed today (None = no limit)."""
+        if not self.public:
+            return None
+        if datetime.date.today() != self.day:
+            self.tasks_today, self.day = 0, datetime.date.today()
+        return max(0, self.daily_tasks - self.tasks_today)
+
+    def check_can_take(self):
+        """Raise ValueError (a message for the visitor) if no new task may start now."""
+        if not self.enabled:
+            raise ValueError("The AI supervisor is not switched on here.")
+        if self.public and self.left_today() == 0:
+            raise ValueError("Today's free AI tasks are used up. Come back tomorrow, or just watch the fleet.")
+        if self.queue.full():
+            raise ValueError("The supervisor has too much to do. Try again in a minute.")
 
     def start(self):
         if self.enabled and self.worker is None:
@@ -61,16 +100,65 @@ class AgentDesk:
     # ----- tasks -----
 
     async def submit(self, task, source="person"):
-        if not self.enabled:
-            raise ValueError("The AI supervisor is not switched on here.")
-        task = " ".join(str(task).split())[:500]
+        self.check_can_take()
+        task = " ".join(str(task).split())[:200 if self.public else 500]
         if not task:
             raise ValueError("Write what the supervisor should do.")
         try:
             self.queue.put_nowait((task, source))
         except asyncio.QueueFull:
             raise ValueError("The supervisor has too much to do. Try again in a minute.") from None
-        await self._say("queued", task, {"source": source, "waiting": self.queue.qsize()})
+        if self.public:
+            self.tasks_today += 1
+        await self._say("queued", task, {"source": source, "waiting": self.queue.qsize(),
+                                         "left_today": self.left_today()})
+
+    # ----- incidents a visitor starts with a button -----
+
+    def make_incident(self, kind):
+        """
+        Make the incident happen in the live warehouse and return the task for the supervisor.
+        Call it while holding the simulation lock.
+        """
+        if kind not in INCIDENT_BUTTONS:
+            raise ValueError(f"Unknown incident '{kind}'. Choose: {', '.join(INCIDENT_BUTTONS)}.")
+        sim = self.hub.session.sim
+        if kind == "spill":
+            aisles = find_aisles(sim.warehouse)
+            free = [name for name, a in sorted(aisles.items())
+                    if name not in sim.closed_aisles and not any(c in sim.warehouse.occupied for c in a["cells"])]
+            if not free:
+                raise ValueError("Every aisle has a robot in it right now. Try again in a moment.")
+            name = self.rng.choice(free)
+            cells = aisles[name]["cells"][1:4]
+            for cell in cells:
+                sim.warehouse.block_cell(cell)
+                sim.blocked_until[cell] = sim.tick + SPILL_TICKS
+                sim.block_reasons[cell] = "spill"
+            sim.log("cell_blocked", details=f"a spill in aisle {name}: {cells} for {SPILL_TICKS} ticks")
+            return (f"INCIDENT: a spill blocks aisle {name} (cells {cells}) for about {SPILL_TICKS} minutes. "
+                    f"Decide what the fleet should do, and do it.")
+        if kind == "breakdowns":
+            working = [r for r in sim._robots() if r.status != RobotStatus.ERROR
+                       and r.robot_id not in sim.lost and r.robot_id not in sim.paused]
+            if len(working) < 2:
+                raise ValueError("There aren't two working robots right now.")
+            broken = sorted(self.rng.sample(working, 2), key=lambda r: r.robot_id)
+            for robot in broken:
+                robot.break_down(sim.config.repair_ticks)
+                robot.path = []
+                sim.breakdowns += 1
+                sim.log("breakdown", robot.robot_id, f"repair in {sim.config.repair_ticks} ticks")
+            ids = " and ".join(r.robot_id for r in broken)
+            return (f"INCIDENT: {ids} broke down at the same time (repair takes {sim.config.repair_ticks} minutes). "
+                    f"Keep the most urgent orders moving.")
+        items = [i for s in sim.warehouse.shelves.values() for i, n in s.items.items() if n > 0]
+        for k in range(RUSH_ORDERS):
+            priority = Priority.HIGH if k % 3 == 0 else Priority.NORMAL
+            sim.add_order(self.rng.choice(items), priority, 60 if priority == Priority.HIGH else 100,
+                          source="big delivery")
+        return (f"INCIDENT: a big delivery: {RUSH_ORDERS} orders arrived at once, "
+                f"{RUSH_ORDERS // 3} of them urgent. Make sure the urgent ones are delivered on time.")
 
     async def _work(self):
         while True:
