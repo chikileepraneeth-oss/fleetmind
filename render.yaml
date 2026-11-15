@@ -3,7 +3,10 @@
 #
 # Free plan: 0.1 CPU, 512 MB, sleeps after 15 minutes without visitors (the first visit then
 # takes about a minute). FLEETMIND_MESSAGES=off keeps it smooth on 0.1 CPU (about 5 ticks/s).
-# On the Starter plan (0.5 CPU) set FLEETMIND_MESSAGES=on: the robots talk VDA 5050 messages.
+#
+# The AI supervisor uses a FREE AI tier (Groq here): visitors start incidents with buttons.
+# Render asks for AI_MODEL and AI_API_KEY (kept secret, never in the repository).
+# Without a key the demo still runs, just without the supervisor.
 services:
   - type: web
     name: fleetmind-demo
@@ -16,4 +19,14 @@ services:
       - key: FLEETMIND_MESSAGES
         value: "off"
       - key: EMBED_FROM
-        sync: false          # Render asks for it: your Netlify site, e.g. https://yourname.netlify.app
+        sync: false          # your Netlify site, e.g. https://yourname.netlify.app
+      - key: FLEETMIND_PUBLIC_AI
+        value: "on"
+      - key: AI_PROVIDER
+        value: groq
+      - key: AI_MODEL
+        sync: false          # a Groq model that supports tool use (see console.groq.com > Models)
+      - key: AI_API_KEY
+        sync: false          # your free Groq API key (console.groq.com > API Keys)
+      - key: FLEETMIND_AI_TASKS_PER_DAY
+        value: "10"          # keeps the demo inside the free daily quota
