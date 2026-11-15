@@ -9,10 +9,13 @@ a lost robot restarted, an empty shelf filled. Each job is a WorkTicket:
 The people (cleaners and technicians) wait at the staff desk in the loading-dock corner,
 where robots never drive. A free person takes the oldest open ticket of their kind, walks
 there with A* (around robots and other people, like the restock people), does the job and
-walks back. While they walk, their cell is booked, so the robots plan around them.
+walks back. While they walk, their cell is booked, so the robots plan around them. For the job
+they step onto the blocked cell itself (into the spill, next to the broken robot): standing
+beside it in a 1-cell aisle would close the aisle for the robots for the whole job.
 
     cleaner      clean (spill 8 min, box 4 min, pallet 6 min), restock (8 min)
-    technician   repair (the robot's repair time runs only while the technician works on it),
+    technician   repair (the robot's repair time runs only while the technician works on it: 70% of
+                 the repair time, because the old fixed repair time already had the walk in it),
                  restart (a lost robot: 5 min at the robot, then the session switches it on)
 
 A blocked cell with a spill, box or pallet stays blocked until a cleaner has cleaned it.
@@ -33,6 +36,8 @@ CLEAN_MINUTES = {"spill": 8, "box": 4, "pallet": 6}
 CLEANABLE = set(CLEAN_MINUTES)
 RESTOCK_MINUTES = 8
 RESTART_MINUTES = 5
+REPAIR_WORK_SHARE = 0.7           # without staff a repair took repair_ticks, walk included (the 3D view showed
+                                  # the walk as the first 30%): with a real walk, the work itself is the other 70%
 FULL_STOCK = 20
 WALK_HOLD = 2                     # ticks the robots plan around a walking person's cell
 KINDS = ("clean", "repair", "restart", "restock")
@@ -203,9 +208,13 @@ class StaffDesk:
         if m.task == "walking":
             t = m.ticket
             if self._arrived(m, t):
+                self._step_onto_job(m, t)
                 m.task, m.path = "working", []
                 t.status, t.started = "working", sim.tick
                 m.timer = self._minutes(t)
+                if t.kind == "repair" and t.robot in wh.robots:
+                    robot = wh.robots[t.robot]
+                    robot.repair_left = min(robot.repair_left, max(1, round(sim.config.repair_ticks * REPAIR_WORK_SHARE)))
                 sim.log("ticket_working", t.robot or "", f"{m.id} works on {t.id} ({t.kind} {t.what})")
                 return
             if m.target is None or m.target in wh.blocked or (m.target in wh.occupied and m.target != m.position):
@@ -281,11 +290,23 @@ class StaffDesk:
         m.path.pop(0)
         m.waited = 0
 
+    def _step_onto_job(self, m, t):
+        """Work on the job's own cell (already closed to robots), not in the aisle next to it."""
+        if t.kind == "restock":
+            return                                     # restocking: at the shelf, in the aisle
+        cell = self._job_cell(t)
+        wh = self.sim.warehouse
+        if cell in wh.people or cell == m.position:
+            return
+        del wh.people[m.position]
+        m.position = cell
+        wh.people[cell] = m.id
+
     def _arrived(self, m, t):
         if t.kind == "restock":
             return m.position in self.sim.warehouse.access_cells(self.sim.warehouse.shelves[t.shelf])
-        cell = self._job_cell(t)
-        return abs(m.position[0] - cell[0]) + abs(m.position[1] - cell[1]) <= 1
+        near = self._distance(m.position, self._job_cell(t))
+        return near <= 1 or (near <= 2 and m.position == m.target)    # 2 away: every cell beside it was full
 
     def _job_cell(self, t):
         if t.robot and t.robot in self.sim.warehouse.robots:
@@ -301,11 +322,21 @@ class StaffDesk:
             r, c = self._job_cell(t)
             spots = [(r + dr, c + dc) for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1))]
         start = m.position
-        good = [s for s in spots if wh.is_inside(s) and wh.can_enter(s)[0] or s == start]
-        good = [s for s in good if s == start or not is_station(wh, s) or wh.cell_type(s) == DOCK]
+        good = self._free_spots(spots, start)
+        if not good and t.kind != "restock":
+            # Every cell beside the job is taken (e.g. robots queue at the packing station where the robot
+            # broke down, and they can't move until it is repaired): stand 2 cells away and squeeze in.
+            r, c = self._job_cell(t)
+            ring = [(r + dr, c + dc) for dr in range(-2, 3) for dc in range(-2, 3) if abs(dr) + abs(dc) == 2]
+            good = self._free_spots(ring, start)
         if not good:
             return None
         return min(good, key=lambda s: (self._distance(start, s), s))
+
+    def _free_spots(self, spots, start):
+        wh = self.sim.warehouse
+        good = [s for s in spots if wh.is_inside(s) and wh.can_enter(s)[0] or s == start]
+        return [s for s in good if s == start or not is_station(wh, s) or wh.cell_type(s) == DOCK]
 
     def _free_dock(self, near=None):
         wh = self.sim.warehouse

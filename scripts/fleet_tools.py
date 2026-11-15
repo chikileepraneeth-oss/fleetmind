@@ -29,6 +29,9 @@ ORDERS_PER_ROBOT_HOUR = 2.1      # measured: 5 robots deliver about 10-11 orders
 MAX_DEADLINE_MINUTES = 24 * 60
 
 
+_FORECASTS = {}                  # the forecast only depends on the order history and the day
+
+
 class ToolInputError(ValueError):
     """The request can't be done. The message says why and what to do instead."""
 
@@ -66,7 +69,7 @@ class FleetTools:
 
     def __init__(self, session):
         self.session = session              # web.session.LiveSession (its simulation changes on reset)
-        self._forecasts = {}                # day -> forecast, so a repeated question is instant
+        self._forecasts = _FORECASTS        # day -> forecast, shared: a repeated question is instant
 
     @property
     def sim(self):
@@ -352,6 +355,52 @@ class FleetTools:
         if not send_to_charger(sim, robot):
             raise ToolInputError("Every charger is taken right now. Try again in a few minutes.")
         return {"robot": rid, "charger": list(robot.target), "battery": round(robot.battery, 1)}
+
+    # ------------------------------------------------------------------
+    # The shift plan (only after a person approved it, see scripts/shift_lead/plan.py)
+    # ------------------------------------------------------------------
+
+    def plan_charging(self, start, end, target=95):
+        """From `start` to `end` (HH:MM), every robot with nothing to do charges up to `target` %."""
+        sim = self._open_day()
+        a, b = self._window(start, end)
+        if isinstance(target, bool) or not isinstance(target, (int, float)) or not 50 <= target <= 100:
+            raise ToolInputError("target must be a battery level from 50 to 100 (%).")
+        sim.set_plan_window("charge", a, b, float(target))
+        return {"charging": f"{clock(a)}-{clock(b)}", "target": target}
+
+    def plan_parking(self, start, end):
+        """From `start` to `end` (HH:MM), robots with nothing to do wait near the packing stations."""
+        sim = self._open_day()
+        a, b = self._window(start, end)
+        sim.set_plan_window("park", a, b)
+        return {"parking_near_packing": f"{clock(a)}-{clock(b)}", "spots": {r: list(c) for r, c in sim.park_at.items()}}
+
+    def plan_restock_pause(self, start, end):
+        """From `start` to `end` (HH:MM), restockers start no new trips into the aisles."""
+        sim = self._open_day()
+        a, b = self._window(start, end)
+        sim.set_plan_window("restock_pause", a, b)
+        note = "" if sim.crew else " (no restockers work today, so nothing changes)"
+        return {"restock_pause": f"{clock(a)}-{clock(b)}", "note": "Restockers wait at the docks." + note}
+
+    def _window(self, start, end):
+        if not self.session.realistic:
+            raise ToolInputError("A shift plan needs a realistic day with a clock (e.g. Realistic Friday).")
+        a, b = self._tick_of(start), self._tick_of(end)
+        if b <= a:
+            raise ToolInputError(f"The window must end after it starts ({start} - {end}).")
+        return a, b
+
+    @staticmethod
+    def _tick_of(text):
+        try:
+            hours, minutes = (int(x) for x in str(text).strip().split(":"))
+        except ValueError:
+            raise ToolInputError(f"'{text}' is not a time. Use HH:MM, e.g. 16:00.") from None
+        if not (0 <= hours < 24 and 0 <= minutes < 60):
+            raise ToolInputError(f"'{text}' is not a time of day.")
+        return (hours - 6) * 60 + minutes                # tick 0 = 06:00, 1 tick = 1 minute
 
     def reroute_around(self, cell):
         """Every robot whose planned route goes through this cell plans a new route now."""

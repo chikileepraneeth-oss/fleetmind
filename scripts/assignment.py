@@ -188,6 +188,21 @@ def charge_opportunity(sim):
             send_to_charger(sim, robot)
 
 
+def charge_for_plan(sim):
+    """
+    The shift plan says "full batteries before the busy hour": in that window, every free robot below
+    the target goes to charge, even with orders waiting (a robot on a charger can still take an order).
+    """
+    target = sim.charge_target()
+    if target is None:
+        return
+    free = [r for r in sim._robots() if sim._is_free(r) and r.task not in ("to_charger", "charging", "wait_charger")]
+    free.sort(key=lambda r: (r.battery, r.robot_id))
+    for robot in free:
+        if robot.battery < target:
+            send_to_charger(sim, robot)
+
+
 def should_leave_charger_early(sim, robot):
     """v2: stop charging early when orders are piling up and the battery is good enough."""
     cfg = sim.config

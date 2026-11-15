@@ -250,7 +250,23 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
                                 command["value"] = min(value, PUBLIC_MAX_SPEED)
                     kind = command.get("type") if isinstance(command, dict) else None
                     if kind == "agent_ask":
-                        await hub.desk.submit(command.get("text", ""))        # public: refused (no AI there)
+                        text = str(command.get("text", ""))
+                        if hub.session.lead and "plan" in text.lower() and not public:
+                            async with hub.lock:                  # "make the shift plan": the rules make it again
+                                hub.session.lead.make_plan(again=True)
+                                state = hub.session.state_message()
+                            await hub.broadcast([state])
+                            await hub.desk.watch()
+                            continue
+                        await hub.desk.submit(text)               # public: refused (no AI there)
+                        continue
+                    if kind == "plan_answer":
+                        if not hub.session.lead:
+                            raise ValueError("There is no Shift Lead here.")
+                        async with hub.lock:
+                            hub.session.lead.answer_plan(command.get("ok") is True)
+                            state = hub.session.state_message()
+                        await hub.broadcast([state])
                         continue
                     if kind == "agent_incident":
                         now = asyncio.get_running_loop().time()
@@ -286,6 +302,8 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
                     await hub.send(ws, {"type": "error", "message": str(error)})
                     continue
                 await hub.broadcast(messages)
+                if hub.session.lead:
+                    await hub.desk.watch()               # a step by hand can hand work to the manager too
         except WebSocketDisconnect:
             pass
         finally:

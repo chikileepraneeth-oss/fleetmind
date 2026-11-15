@@ -144,6 +144,9 @@
   .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--line); }
   .tag.rules { background: #d8f0e0; color: #1d6b3a; } .tag.llm { background: #e4ddf7; color: #4b2c99; }
   .tag.nobody { background: #f3e2c9; color: #7a4b00; }
+  #lead-plan { font-size: 12px; margin: 6px 0 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+  #lead-plan ul { margin: 4px 0; padding-left: 16px; }
+  #lead-plan .btns { display: flex; gap: 6px; margin-top: 6px; }
   #agent-info { margin: -4px 0 8px; }
   #public-banner { display: none; background: #1d2330; color: #fff; font-size: 13px; padding: 7px 16px; text-align: center; }
   #public-banner a { color: #9cc0ff; }
@@ -227,6 +230,7 @@
     <div class="card" id="lead-card" hidden>
       <h2>Shift Lead <span class="small" id="lead-counts"></span></h2>
       <div id="agent-incidents"></div>
+      <div id="lead-plan" hidden></div>
       <div class="small" id="lead-tickets"></div>
       <div id="lead-decisions"></div>
     </div>
@@ -432,7 +436,26 @@
   // ------------------------------------------------------------------
   // The Shift Lead: incidents, decisions (by rules or by the AI) and tickets
   // ------------------------------------------------------------------
-  let leadKey = "";
+  let leadKey = "", planKey = "";
+  const PLAN_WORD = { charge: "Charge", park: "Park near packing", restock_pause: "No restock trips" };
+  function renderPlan(plan) {
+    const box = $("lead-plan");
+    box.hidden = !plan;
+    if (!plan) return;
+    const key = JSON.stringify([plan.status, plan.explained, plan.steps.length]);
+    if (key === planKey) return;
+    planKey = key;
+    const status = { waiting: "waiting for your OK", approved: "approved: the fleet follows it",
+      rejected: "not used today", none: "" }[plan.status] || plan.status;
+    box.innerHTML = `<b>Today's plan</b> <span class="small">(${esc(plan.made_by)}, ${esc(status)})</span>
+      <div>${esc(plan.explained || plan.text)}</div>
+      <ul>${plan.steps.map((s) => `<li>${esc(s.start)}-${esc(s.end)} ${esc(PLAN_WORD[s.kind] || s.kind)}${s.target ? " to " + s.target + "%" : ""}: <span class="small">${esc(s.why)}</span></li>`).join("")}</ul>
+      ${plan.status === "waiting" && plan.steps.length ? '<div class="btns"><button class="primary" data-plan="1">Approve plan</button><button data-plan="0">Not today</button></div>' : ""}`;
+  }
+  $("lead-plan").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-plan]");
+    if (b) send({ type: "plan_answer", ok: b.dataset.plan === "1" });
+  });
   function renderLead(msg) {
     const lead = msg.shift_lead;
     $("lead-card").hidden = !lead;
@@ -443,6 +466,7 @@
     $("lead-tickets").textContent = open.length
       ? "Tickets: " + open.map((t) => `${t.id} ${t.kind} ${t.what}${t.assigned ? " (" + t.assigned + ")" : ""}`).join(", ")
       : "No open tickets.";
+    renderPlan(lead.plan);
     const key = JSON.stringify(lead.incidents.map((i) => [i.id, i.status, i.handled_by]));
     if (key === leadKey) return;
     leadKey = key;

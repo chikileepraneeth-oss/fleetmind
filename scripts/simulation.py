@@ -145,6 +145,8 @@ class Simulation:
                 raise ValueError("restocking needs movement='cooperative' (people and robots share the bookings)")
             from scripts.restock import RestockCrew
             self.crew = RestockCrew(self)
+        self.plan = {"charge": [], "park": [], "restock_pause": []}   # the approved shift plan (empty: none)
+        self.park_at = {}                              # robot id -> where it parks during a "park" window
         self.staff = None
         if self.config.staff:
             from scripts.shift_lead.staff import StaffDesk
@@ -314,6 +316,8 @@ class Simulation:
             assignment.charge_opportunity(self)
         else:
             assignment.charge_simple(self)
+        if self.plan["charge"]:
+            assignment.charge_for_plan(self)          # the shift plan: full batteries before a busy hour
 
     def _free_charger_for(self, robot):
         taken = {r.target for r in self._robots()
@@ -565,7 +569,7 @@ class Simulation:
         An idle robot drives back to its home spot, so it doesn't block aisles,
         packing stations or chargers while it waits for the next order.
         """
-        home = self.home.get(robot.robot_id)
+        home = self._home_of(robot.robot_id)
         if robot.battery < self.config.charge_threshold:
             return      # low battery and no charger free: wait here, don't waste battery driving home
         if self.config.movement != "greedy" and home is not None:
@@ -583,6 +587,46 @@ class Simulation:
             moved, _ = robot.move(direction, self.warehouse)
             if moved and self.warehouse.cell_type(robot.position) == FLOOR:
                 return
+
+    def _home_of(self, robot_id):
+        """Where an idle robot waits: its home spot, or near the packing stations in a planned busy hour."""
+        if self.plan["park"] and robot_id in self.park_at and self._in_window("park"):
+            return self.park_at[robot_id]
+        return self.home.get(robot_id)
+
+    def _in_window(self, kind):
+        return any(start <= self.tick < end for start, end, *_ in self.plan[kind])
+
+    def charge_target(self):
+        """The battery the shift plan wants right now (None: no plan for this minute)."""
+        targets = [t for start, end, t in self.plan["charge"] if start <= self.tick < end]
+        return max(targets) if targets else None
+
+    def restock_paused(self):
+        return bool(self.plan["restock_pause"]) and self._in_window("restock_pause")
+
+    def set_plan_window(self, kind, start, end, target=None):
+        """Add one window of the shift plan (used by scripts/fleet_tools.py, after a person approved the plan)."""
+        self.plan[kind].append((start, end, target) if kind == "charge" else (start, end))
+        if kind == "park" and not self.park_at:
+            self.park_at = self._parking_near_packing()
+        self.log("plan_window", details=f"{kind} from tick {start} to {end}" + (f", {target}%" if target else ""))
+
+    def _parking_near_packing(self):
+        """Free floor cells close to the packing stations that block nobody: one per robot."""
+        from scripts.classes import SHELF
+        wh = self.warehouse
+        taken = set(self.home.values()) | set(self.holding_cells)
+
+        def next_to(cell, kinds):
+            return any(wh.is_inside(n) and wh.cell_type(n) in kinds
+                       for n in ((cell[0] - 1, cell[1]), (cell[0] + 1, cell[1]), (cell[0], cell[1] - 1), (cell[0], cell[1] + 1)))
+
+        cells = [(r, c) for r in range(wh.height) for c in range(wh.width)
+                 if wh.cell_type((r, c)) == FLOOR and (r, c) not in taken
+                 and not next_to((r, c), {SHELF, CHARGER, PACKING})]
+        cells.sort(key=lambda cell: (min(self.dist.get(cell, {}).get(p, 999) for p in self.packing), cell))
+        return {rid: cells[i] for i, rid in enumerate(sorted(self.warehouse.robots)) if i < len(cells)}
 
     def _act_to_home(self, robot):
         if robot.position == robot.target:

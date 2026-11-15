@@ -21,6 +21,7 @@ from scripts.classes import RobotStatus
 from scripts.fleet_tools import FleetTools
 from scripts.shift_lead.caselog import CaseLog
 from scripts.shift_lead.playbooks import NEEDS_MANAGER, PLAYBOOKS, run_playbook
+from scripts.shift_lead import plan as shift_plan
 from scripts.shift_lead.staff import CLEANABLE
 
 CRITICAL_BATTERY = 15.0
@@ -96,6 +97,40 @@ class ShiftLead:
         self._last_queue = len(self.sim.queue)
         self._last_kind_tick = {}
         self._many_open_asked = False
+        self.plan = None                               # today's shift plan (realistic days), made at 06:00
+
+    # ------------------------------------------------------------------
+    # The shift plan
+    # ------------------------------------------------------------------
+
+    def make_plan(self, again=False):
+        """Make today's plan from the forecast (rules). It waits for a person's Approve."""
+        if not self.session.realistic or (self.plan and not again):
+            return self.plan
+        try:
+            self.plan = shift_plan.make_plan(self.tools)
+        except Exception as error:                     # no order history, no LightGBM: the day runs without a plan
+            self.plan = {"date": "", "made_by": "rules", "text": f"No plan today: {error}", "steps": [],
+                         "status": "none", "periods": [], "actions": []}
+            return self.plan
+        self.sim.log("plan_made", details=f"{len(self.plan['steps'])} steps: {self.plan['text']}")
+        if self.manager_allowed and self.plan["steps"]:
+            self.outbox.append({"kind": "plan", "tick": self.sim.tick, "text": shift_plan.explain_prompt(self.plan),
+                                "incidents": []})
+        return self.plan
+
+    def answer_plan(self, approved):
+        """The person's one click. Approve: the steps run through the tools. Reject: nothing changes."""
+        if not self.plan or self.plan["status"] != "waiting":
+            raise ValueError("There is no plan waiting for an answer.")
+        if not approved:
+            self.plan["status"] = "rejected"
+            self.sim.log("plan_rejected", details="the shift plan was rejected: nothing changes")
+            return self.plan
+        self.plan["actions"] = shift_plan.apply_plan(self.tools, self.plan)
+        self.plan["status"] = "approved"
+        self.sim.log("plan_approved", details=f"{len(self.plan['actions'])} plan steps are on")
+        return self.plan
 
     # ------------------------------------------------------------------
     # After every tick
@@ -104,6 +139,8 @@ class ShiftLead:
     def after_tick(self):
         if self.session.sim is not self.sim:
             self.attach()
+        if self.plan is None and self.session.realistic and self.sim.tick >= 1:
+            self.make_plan()                           # 06:00: the plan for the day (it waits for Approve)
         new = self._find_new()
         for incident in new:
             self._decide(incident)
@@ -202,6 +239,8 @@ class ShiftLead:
 
     def manager_busy(self, task, why):
         """The manager could not take a task: those incidents are only written down."""
+        if task.get("kind") == "plan":
+            return                                     # the rules' plan text stays
         for i in self.incidents:
             if i.id in task["incidents"] and i.handled_by == "llm":
                 i.handled_by = "nobody"
@@ -275,6 +314,7 @@ class ShiftLead:
             "manager_allowed": self.manager_allowed,
             "open": len(open_now),
             "incidents": [i.to_dict() for i in self.incidents[-25:]],
+            "plan": self.plan,
             "playbooks": sorted(PLAYBOOKS),
         }
 

@@ -6,7 +6,7 @@ a broken robot for a technician. Without staff, every run stays exactly the same
 from scripts.bus import InMemoryBroker
 from scripts.classes import RobotStatus
 from scripts.record import build_simulation
-from scripts.shift_lead.staff import CLEAN_MINUTES, NEVER
+from scripts.shift_lead.staff import CLEAN_MINUTES, NEVER, REPAIR_WORK_SHARE
 from web.session import LiveSession
 
 LAYOUT = "layouts/main_warehouse.json"
@@ -104,18 +104,22 @@ def test_a_broken_robot_waits_for_a_technician():
     assert t and t.assigned == "T1"
     left_before = robot.repair_left
     while t.status == "assigned":                              # walking: the repair does not run yet
+        assert robot.repair_left == left_before
         sim.step()
-    assert robot.repair_left == left_before
+    assert robot.repair_left == round(sim.config.repair_ticks * REPAIR_WORK_SHARE)   # the work part of it
+    assert t.assigned and sim.staff.members[2].position == robot.position             # T1 kneels at the robot
     run_until(sim, lambda: robot.status != RobotStatus.ERROR)
     assert t.status == "done" and t.note == "repaired"
 
 
-def test_people_never_stand_on_a_robot_and_robots_never_drive_into_people():
+def test_people_only_stand_on_the_robot_they_repair_and_robots_never_drive_into_people():
     sim = build_simulation("breakdown_day", LAYOUT, staff=True)
     for _ in range(400):
         sim.step()
-        people = {m.position for m in sim.staff.members if m.position}
-        assert not people & set(sim.warehouse.occupied)
+        for m in sim.staff.members:
+            robot = sim.warehouse.occupied.get(m.position) if m.position else None
+            if robot is not None:                              # kneeling at the robot it repairs (or just did)
+                assert m.kind == "technician" and m.task in ("working", "returning")
     assert sim.kpis()["collisions"] == 0
     assert sim.staff.done_count > 0
 

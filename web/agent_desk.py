@@ -164,6 +164,24 @@ class AgentDesk:
         return (f"INCIDENT: a big delivery: {RUSH_ORDERS} orders arrived at once, "
                 f"{RUSH_ORDERS // 3} of them urgent. Make sure the urgent ones are delivered on time.")
 
+    async def _explain_plan(self, lead, task):
+        """One LLM call, in the background: plain words for the plan. The steps don't change."""
+        plan = lead.plan
+        try:
+            reply = await self.model.create("You explain plans to warehouse staff in short, plain sentences.",
+                                            [{"role": "user", "content": task["text"]}])
+            text = " ".join(b.text for b in reply.content if b.type == "text" and b.text).strip()
+        except Exception as error:                     # the rules' text stays
+            await self._say("plan", f"The AI could not explain the plan ({type(error).__name__}).", {})
+            return
+        if text and lead.plan is plan:
+            async with self.hub.lock:
+                plan["explained"] = text
+                plan["made_by"] = "rules (explained by the AI)"
+                state = self.hub.session.state_message()
+            await self.hub.broadcast([state])
+            await self._say("plan", text, {})
+
     async def _work(self):
         while True:
             task, source = await self.queue.get()
@@ -216,6 +234,9 @@ class AgentDesk:
                 task = lead.outbox.popleft()
                 if not self.enabled:
                     lead.manager_busy(task, "no AI is switched on")
+                    continue
+                if task.get("kind") == "plan":         # the LLM only writes the plan's explanation
+                    asyncio.create_task(self._explain_plan(lead, task))
                     continue
                 try:
                     await self.submit(task["text"], source="shift lead")
