@@ -66,8 +66,12 @@ class LiveSession:
         self.agents = {}               # robot id -> RobotAgent (only robots="inproc")
         self.link = None
         self.public = False            # the public demo (set by web/server.py): the page shows a banner
-        self.shift_lead = shift_lead   # cleaners, technicians and work tickets (scripts/shift_lead/)
+        self.shift_lead = shift_lead   # cleaners, technicians, work tickets and playbooks (scripts/shift_lead/)
+        self.lead = None
         self.load_scenario(scenario)
+        if shift_lead:
+            from scripts.shift_lead.lead import ShiftLead
+            self.lead = ShiftLead(self)
 
     # ------------------------------------------------------------------
     # Controls
@@ -146,6 +150,8 @@ class LiveSession:
             self._rescue_lost_robots()
         else:
             self.sim.step()
+        if self.lead:
+            self.lead.after_tick()                # rules decide at once; the LLM only gets a queued task
         if self.finished:
             self.running = False                  # closing time: stop by itself
 
@@ -315,6 +321,7 @@ class LiveSession:
             "known_people": frame.get("known_people", []), # where the robots BELIEVE the people are
             "staff": frame.get("staff"),                   # cleaners and technicians (None: no staff)
             "tickets": frame.get("tickets", []),           # their work tickets
+            "shift_lead": self.lead.snapshot() if self.lead else None,   # incidents and decisions
             "events": [list(e) for e in events],
             "clock": clock(frame["tick"]) if self.realistic else None,   # 1 tick = 1 minute from 06:00
             "finished": self.finished,

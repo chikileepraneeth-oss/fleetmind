@@ -677,6 +677,26 @@ class Simulation:
         self.log("robot_paused", robot_id, f"at {robot.position}" + (f": {reason}" if reason else ""))
         return True
 
+    def return_order(self, robot_id, why=""):
+        """
+        Give a robot's order back to the front of the queue, so another robot can do it
+        (for example the robot broke down). Only before pickup: an item on the robot stays there.
+        Returns the order, or None if there was nothing to give back.
+        """
+        robot = self.warehouse.robots[robot_id]
+        order = robot.order
+        if order is None or robot.carrying is not None:
+            return None
+        order.status = OrderStatus.WAITING
+        self.queue.appendleft(order)
+        robot.order = None
+        if robot.task in ("to_pickup", "to_dropoff"):
+            robot.task, robot.target, robot.path = None, None, []
+        self.resume.pop(robot_id, None)
+        self._leave_station_queues(robot_id)
+        self.log("order_returned", robot_id, f"{order.order_id}" + (f": {why}" if why else ""))
+        return order
+
     def resume_robot(self, robot_id):
         if robot_id not in self.paused:
             return False
