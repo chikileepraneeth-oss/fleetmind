@@ -50,7 +50,6 @@ def test_reserve_path_books_every_step_and_holds_the_end():
 def test_swap_is_detected():
     table = ReservationTable()
     table.reserve_path("R1", (1, 1), 0, [(1, 2)])
-    # R2 wants to move from (1, 2) to (1, 1) at the same time: they would pass through each other
     assert table.swap_conflict((1, 2), (1, 1), 0, "R2") is True
 
 
@@ -97,9 +96,7 @@ def test_cooperative_astar_uses_the_pocket_to_let_another_robot_pass():
     wh = corridor()
     dist = distance_table(wh)
     table = ReservationTable()
-    # R2 waits 2 ticks at the right end, then drives all the way to (1, 1), R1's start cell
     table.reserve_path("R2", (1, 5), 0, [(1, 5), (1, 5), (1, 4), (1, 3), (1, 2), (1, 1)])
-    # R1 starts at (1, 1) and must end up at (1, 5): it has to get out of R2's way
     path = cooperative_astar(wh, (1, 1), (1, 5), 0, table, "R1", dist, window=20)
     assert path is not None and path[-1] == (1, 5)
     assert (2, 3) in path                        # it waited in the pocket
@@ -118,7 +115,6 @@ def test_cooperative_path_steps_are_moves_or_waits():
 def test_robots_never_drive_through_stations():
     wh = load_layout(MAIN_LAYOUT)
     dist = distance_table(wh)
-    # going from above the chargers to below the packing stations along the wall
     path = cooperative_astar(wh, (1, 14), (7, 15), 0, ReservationTable(), "R1", dist, window=30)
     for cell in path[:-1]:
         assert wh.cell_type(cell) not in ("C", "P", "D")
@@ -141,7 +137,6 @@ def test_a_chain_is_not_a_cycle():
 
 
 def test_cycle_found_even_with_a_tail():
-    # R4 waits for R1, and R1/R2 wait on each other
     assert find_wait_cycles({"R4": "R1", "R1": "R2", "R2": "R1"}) == [["R1", "R2"]]
 
 
@@ -192,7 +187,6 @@ def test_stress_test_20_robots_2000_ticks():
     sim = stress_run(seed=1)
     k = sim.kpis()
     assert k["collisions"] == 0
-    # "no permanent deadlock": no robot that wants to drive is stuck for long
     assert k["longest_wait"] < 100
     assert k["orders_delivered"] > 300
 

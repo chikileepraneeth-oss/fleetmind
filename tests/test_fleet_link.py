@@ -195,7 +195,6 @@ def test_a_run_over_messages_is_exactly_the_same_run(key):
         assert snapshot(sim) == snapshot(direct)
     assert link.mismatches == 0
     assert sim.kpis() == direct.kpis()
-    # and the robots themselves agree with the manager
     for rid, agent in agents.items():
         assert agent.position == sim.warehouse.robots[rid].position
         assert agent.battery == sim.warehouse.robots[rid].battery
@@ -231,7 +230,6 @@ def test_a_crashed_robot_is_lost_at_once_through_its_last_will():
     run(link, clock, 1)
     assert busy in sim.lost
     assert sim.warehouse.robots[busy].task == "lost"
-    # its order went back to the queue (and may already be given to another robot this tick)
     holders = [r.robot_id for r in sim.warehouse.robots.values() if r.order is order]
     assert busy not in holders
     assert order in sim.queue or holders

@@ -33,7 +33,6 @@ def build_simulation(key, layout_path, seed=None):
     spec = SCENARIOS[key]
     warehouse = load_layout(layout_path)
 
-    # Optional: keep only the first N robots, or add robots up to N
     keep = spec.get("robots")
     if keep is not None and keep < len(warehouse.robots):
         for robot_id in sorted(warehouse.robots)[keep:]:
@@ -42,7 +41,6 @@ def build_simulation(key, layout_path, seed=None):
     elif keep is not None:
         add_robots(warehouse, keep)
 
-    # Optional: change the starting battery
     if "start_battery" in spec:
         for robot in warehouse.robots.values():
             robot.battery = spec["start_battery"]
@@ -59,7 +57,6 @@ def record_scenario(key, layout_path):
 
     frames = [snapshot(sim)]                  # tick 0: the starting state
     realistic = sim.config.demand == "realistic"
-    # a realistic day runs until its last order is delivered; other scenarios for spec["ticks"]
     while (not sim.day_over()) if realistic else sim.tick < spec["ticks"]:
         sim.step()
         frames.append(snapshot(sim))
@@ -117,7 +114,6 @@ def snapshot(sim):
     return {
         "tick": sim.tick,
         "robots": robots,
-        # cells blocked by a lost robot are shown as the robot, not as a blocked cell
         "blocked": [list(c) for c in sorted(sim.warehouse.blocked)
                     if c not in getattr(sim, "lost_cells", {}).values()],
         "queue": len(sim.queue),

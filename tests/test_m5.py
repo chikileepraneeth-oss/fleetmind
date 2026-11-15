@@ -61,7 +61,6 @@ def test_missing_daily_file_gives_a_clear_message(tmp_path):
 
 def test_m5_demand_scales_the_real_days(daily_file):
     model = DemandModel(source="m5", m5_path=daily_file, orders_per_day=140)
-    # average units = 40/3; 140 orders a day on average -> day 0 = 15 * 140 / (40/3) = 157.5 -> 158
     assert model.daily_total(0) == round(15 * 140 / (40 / 3))
     assert model.daily_total(2) == 0                          # closed on Christmas
     assert model.days == 3

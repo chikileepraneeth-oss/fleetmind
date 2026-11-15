@@ -175,7 +175,6 @@ class WorldBuilder:
         length, width, height = ROBOT_SIZE
         self.box(f"/World/Robots/{rid}/Body", Gf.Vec3d(0, 0, 0.05 + height / 2), (length, width, height),
                  "robot", COLOURS["robot"])
-        # a small "front" block, so you can see which way the robot faces
         self.box(f"/World/Robots/{rid}/Front", Gf.Vec3d(length / 2 - 0.05, 0, 0.05 + height + 0.04),
                  (0.1, 0.3, 0.08), "wall", COLOURS["wall"])
 

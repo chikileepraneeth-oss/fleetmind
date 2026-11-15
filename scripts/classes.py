@@ -16,9 +16,6 @@ from enum import Enum
 # ---------------------------------------------------------------------------
 # Status values
 # ---------------------------------------------------------------------------
-# An Enum is a fixed list of allowed values. Using RobotStatus.IDLE instead of
-# the string "idle" means a typo like "idel" becomes an error you see at once,
-# instead of a silent bug.
 
 class RobotStatus(Enum):
     IDLE = "idle"
@@ -42,7 +39,6 @@ class Priority(Enum):
     HIGH = 3
 
 
-# Map symbols
 FLOOR = "."
 WALL = "#"
 SHELF = "S"
@@ -50,10 +46,8 @@ CHARGER = "C"
 PACKING = "P"
 DOCK = "D"
 
-# Cells a robot is allowed to drive on
 DRIVABLE = {FLOOR, CHARGER, PACKING, DOCK}
 
-# How each direction changes a (row, col) position
 DIRECTIONS = {
     "up": (-1, 0),
     "down": (1, 0),
@@ -79,14 +73,10 @@ class Shelf:
         self.shelf_id = shelf_id          # e.g. "A"
         self.name = name                  # e.g. "Fruit"
 
-        # Convenience: a single (row, col) also works for a one-cell shelf.
         if len(cells) == 2 and all(isinstance(v, int) for v in cells):
             cells = [cells]
         self.cells = [tuple(cell) for cell in cells]
 
-        # items maps item name -> quantity, e.g. {"apples": 20}
-        # (None as the default, then a new dict, avoids a classic Python bug
-        #  where all shelves would share one dictionary.)
         self.items = items if items is not None else {}
 
     def has_item(self, item):
@@ -168,8 +158,6 @@ class Robot:
         self.task = None                  # what it is doing: "to_pickup", "to_dropoff", "to_charger", "charging"
         self.target = None                # (row, col) it is driving to, or None
 
-    # Every action returns (success, reason) so the caller always knows WHY
-    # something failed. This makes debugging and logging much easier.
 
     def move(self, direction, warehouse):
         """Move one cell up/down/left/right if the rules allow it."""
@@ -282,11 +270,8 @@ class Warehouse:
     """The grid map. Knows what is in every cell and where every robot is."""
 
     def __init__(self, height, width):
-        # height/width are the SIZE of the grid (not a position).
         self.height = height
         self.width = width
-        # A 2D grid: grid[row][col] holds a symbol. Checking a cell is then
-        # instant - no need to search through lists every time a robot moves.
         self.grid = [[FLOOR for _ in range(width)] for _ in range(height)]
         self.shelves = {}            # shelf_id -> Shelf
         self.shelf_at = {}           # (row, col) -> shelf_id, for every shelf cell
@@ -295,7 +280,6 @@ class Warehouse:
         self.blocked = set()         # floor cells temporarily blocked (e.g. a fallen box)
         self.people = {}             # (row, col) -> id of a person or restocking robot standing there
 
-        # Surround the warehouse with walls
         for row in range(height):
             for col in range(width):
                 if row in (0, height - 1) or col in (0, width - 1):
@@ -449,14 +433,11 @@ class Warehouse:
 
 
 # ---------------------------------------------------------------------------
-# Quick demo - runs only when you execute this file directly:
-#     python -m scripts.classes
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     wh = Warehouse(height=8, width=12)
 
-    # One shelf unit covering a 2x3 block
     block_a = [(2, 3), (2, 4), (2, 5), (3, 3), (3, 4), (3, 5)]
     wh.add_shelf(Shelf("A", block_a, {"apples": 5, "rice": 3}, name="Food"))
     wh.add_charger((1, 10))
@@ -477,7 +458,6 @@ if __name__ == "__main__":
     tick = 0
     print(robot.pick(wh))
 
-    # Walk to the packing station at (5, 10): 1 down, 6 right
     for direction in ["down"] + ["right"] * 6:
         tick += 1
         print(tick, direction, robot.move(direction, wh))

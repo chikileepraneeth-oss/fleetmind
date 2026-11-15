@@ -96,7 +96,6 @@ def build_warehouse(data):
         info = shelf_info[row_id]
         items = info.get("items", [])
 
-        # Check 4: one item per cell
         if len(items) != len(cells):
             raise LayoutError(
                 f"Shelf row {row_id} has {len(cells)} cells on the map but {len(items)} items. "
@@ -106,7 +105,6 @@ def build_warehouse(data):
         for number, (cell, item) in enumerate(zip(cells, items), start=1):
             shelf_id = f"{row_id}{number}"
 
-            # Check 5: every item is on exactly one shelf
             if item in seen_items:
                 raise LayoutError(
                     f"Item '{item}' is on shelf {seen_items[item]} and shelf {shelf_id}. "
@@ -117,7 +115,6 @@ def build_warehouse(data):
             shelf = Shelf(shelf_id, [cell], {item: stock}, name=info.get("name", ""))
             wh.add_shelf(shelf)
 
-            # Check 6: a robot must be able to reach every shelf
             if not wh.access_cells(shelf):
                 raise LayoutError(f"Shelf {shelf_id} has no free cell next to it, so no robot can reach it.")
 
@@ -125,7 +122,6 @@ def build_warehouse(data):
     for entry in data.get("robots", []):
         robot_id = entry["id"]
         position = tuple(entry["position"])
-        # Check 7: robots start inside, on a drivable cell, one per cell, unique ids
         try:
             wh.add_robot(Robot(robot_id, position))
         except ValueError as error:
@@ -134,7 +130,6 @@ def build_warehouse(data):
     return wh
 
 
-# Quick look at the layout:  python -m scripts.layout
 if __name__ == "__main__":
     wh = load_layout("layouts/main_warehouse.json")
     print(f"Warehouse: {wh.height} rows x {wh.width} columns, {len(wh.shelves)} shelves")

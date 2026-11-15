@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "dist" / "hf-space"
 COPY = ["Dockerfile", ".dockerignore", "requirements.txt", "layouts", "scripts", "web", "viewer", "isaac",
         "data/orders_hourly.csv"]
-SKIP = {"__pycache__", "test_recordings.js"}
+SKIP = {"__pycache__"}
 
 SPACE_README = """---
 title: FleetMind

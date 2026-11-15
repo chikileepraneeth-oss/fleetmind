@@ -24,12 +24,10 @@ def history():
 # ---------------------------------------------------------------------------
 
 def test_wape():
-    # errors 2 + 0 + 2 = 4, real orders 10 + 10 + 20 = 40  ->  10%
     assert wape([10, 10, 20], [12, 10, 18]) == pytest.approx(0.10)
 
 
 def test_mase():
-    # average error 2, the naive rule's average error is 4  ->  0.5 (twice as good)
     assert mase([10, 10], [12, 8], scale=4) == pytest.approx(0.5)
 
 
@@ -98,5 +96,4 @@ def test_checkpoint_lightgbm_beats_the_baseline(history):
     table = scores(results, naive_scale(add_features(history), 90)).set_index("forecast")
     assert table.loc["lightgbm", "WAPE"] < table.loc["baseline", "WAPE"]
     assert table.loc["lightgbm", "MASE"] < 1.0
-    # and nothing can beat knowing the true average by much (if it did, something would be leaking)
     assert table.loc["lightgbm", "WAPE"] > table.loc["perfect_average", "WAPE"] - 0.02

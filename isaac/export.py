@@ -40,7 +40,6 @@ def world_data(path=DEFAULT_OUT):
         colour = UsdGeom.Cube(prim).GetDisplayColorAttr().Get()
         colour = list(colour[0]) if colour else [0.7, 0.7, 0.7]
         if parts[2] == "Robots":
-            # robot parts are given relative to the robot, because the robot moves
             robots.setdefault(parts[3], []).append({
                 "name": parts[-1], "centre": list(local.ExtractTranslation()), "size": scale, "colour": colour})
             continue

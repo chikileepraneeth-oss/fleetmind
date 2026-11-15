@@ -204,10 +204,9 @@ Now every robot uses **A\*** (A-star). It plans the whole route from start to en
 - If a blocked cell appears on its route, it plans a new route right away.
 
 ### 9. I can see everything in my browser
-I built two viewers that open in the browser:
+I built a replay viewer that opens in the browser:
 
 - **Replay viewer** (`viewer/index.html`): plays back a whole day in the warehouse. I can pause, jump to any tick, follow one robot, and see its planned route, battery and what it carries. There are 16 scenarios, like a realistic Friday, rush hour, breakdown day, blocked aisles, low battery, single robot and a 20-robot stress test, plus "old version" scenarios to compare with earlier versions.
-- **Test viewer** (`viewer/tests.html`): shows every test step by step on a small map, next to the test code.
 
 ### 10. Smarter assignment and charging
 Before, the first free robot took the oldest order, even if it was far away. Now (`SimConfig(assignment="smart")`):
@@ -847,13 +846,6 @@ python -m scripts.record
 start viewer\index.html
 ```
 
-### Watch the tests in the browser
-
-```powershell
-python -m scripts.record_tests
-start viewer\tests.html
-```
-
 ---
 
 ## Project structure
@@ -891,8 +883,7 @@ fleetmind/
 │   ├── restock.py            # restocking by people (robots find them and tell each other) or robots
 │   ├── compare_restock.py    # who should restock: 4 ways over 30 seeds
 │   ├── agent.py              # the AI supervisor: plan, act (with approval), check
-│   ├── make_space.py         # prepare the public demo for Hugging Face Spaces
-│   └── record_tests.py       # records the tests for the test viewer
+│   └── make_space.py         # prepare the public demo for Hugging Face Spaces
 ├── isaac/
 │   ├── world.py              # the warehouse as a 3D USD world for Isaac Sim
 │   ├── bridge.py             # robots whose bodies are in the 3D world
@@ -928,12 +919,10 @@ fleetmind/
 │   ├── test_restock.py       # people block robots, sightings reroute, stale spots, same run over MQTT
 │   ├── test_public.py        # the public demo: no tools, limits, runs by itself
 │   ├── test_rescue.py        # lost robots are restarted by a technician
-│   ├── test_agent.py         # the AI supervisor with a scripted model (no API key)
-│   └── conftest.py           # records tests for the test viewer (only when asked)
+│   └── test_agent.py         # the AI supervisor with a scripted model (no API key)
 ├── viewer/
 │   ├── draw.js               # drawing code shared by the replay viewer and the live website
-│   ├── index.html            # replay viewer
-│   └── tests.html            # test viewer
+│   └── index.html            # replay viewer
 ├── mosquitto/
 │   └── mosquitto.conf        # the MQTT broker's settings
 ├── docker-compose.yml        # starts Mosquitto

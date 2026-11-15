@@ -46,7 +46,6 @@ def fleet_online():
 
 pytestmark = [
     pytest.mark.skipif(not broker_running(), reason=f"no MQTT broker on {HOST}:{PORT} (docker compose up -d)"),
-    # robots with the same ids would throw a running fleet off the broker: never fight a live demo
     pytest.mark.skipif(bool(fleet_online()), reason=f"a fleet is running on {HOST}:{PORT}; "
                                                     f"use another broker: FLEETMIND_MQTT_PORT=1884"),
 ]

@@ -164,7 +164,6 @@ def cooperative_astar(warehouse, start, goal, start_tick, table, robot_id, dist,
                 best_g[new_state] = new_g
                 came_from[new_state] = state
                 counter += 1
-                # tiny extra cost for waiting, so moving is preferred when equal
                 f = new_g + to_goal[nxt] + (0.001 if nxt == cell else 0)
                 heapq.heappush(heap, (f, new_g, counter, nxt, nt))
 

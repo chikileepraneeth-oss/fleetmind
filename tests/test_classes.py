@@ -26,14 +26,6 @@ from scripts.classes import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-# A small reusable warehouse, so every test doesn't repeat the same setup.
-#
-#   row 0:  # # # # # # #
-#   row 1:  # . . . . . #
-#   row 2:  # . S . . . #     S = shelf A1 at (2, 2), 3 apples
-#   row 3:  # . . . . . #
-#   row 4:  # . . . . P #     P = packing station at (4, 5)
-#   row 5:  # # # # # # #
 
 def make_warehouse():
     wh = Warehouse(height=6, width=7)
@@ -148,8 +140,6 @@ def test_robot_cannot_move_into_occupied_cell():
 
 
 def test_robot_cannot_leave_the_grid():
-    # A warehouse whose edge is floor would let a robot walk off the map,
-    # so we turn an edge cell into floor on purpose to test is_inside().
     wh = make_warehouse()
     wh.grid[0][1] = "."
     robot = Robot("R1", position=(0, 1))
@@ -335,7 +325,6 @@ def test_full_delivery_works():
     robot.order = order
 
     robot.pick(wh)
-    # From (3, 2) to the packing station at (4, 5): 1 down, 3 right
     for direction in ["down", "right", "right", "right"]:
         ok, _ = robot.move(direction, wh)
         assert ok is True
@@ -393,7 +382,6 @@ def test_undelivered_order_past_deadline_is_late():
 # ---------------------------------------------------------------------------
 
 def test_shelves_do_not_share_items():
-    # This is the items=None lesson: each shelf needs its own dictionary.
     a1 = Shelf("A1", (2, 3))
     a2 = Shelf("A2", (2, 4))
 

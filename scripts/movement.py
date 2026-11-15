@@ -63,13 +63,6 @@ def nearest(position, cells):
 # ---------------------------------------------------------------------------
 # A* path planning
 # ---------------------------------------------------------------------------
-#
-# A* finds the SHORTEST route from start to goal on the grid, going around
-# walls, shelves and blocked cells. It explores cells in order of
-#     f = g + h
-#     g = steps already taken from the start
-#     h = Manhattan distance still left to the goal (a guess that is never too big)
-# so it looks at the most promising cells first and never needs to wobble.
 
 import heapq
 
@@ -127,7 +120,6 @@ def astar(warehouse, start, goal, avoid=None, through_stations=False):
     else:
         return None                              # heap ran empty: goal unreachable
 
-    # walk back from the goal to the start
     path = []
     cell = goal
     while cell != start:

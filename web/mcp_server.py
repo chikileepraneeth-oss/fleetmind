@@ -100,7 +100,6 @@ def build_mcp(hub):
         """Expected orders for each hour (06:00-22:00) of a day, from the LightGBM forecast,
         with the peak hour and the hours above the fleet's capacity. date: YYYY-MM-DD
         (default: the simulated day). Takes a few seconds the first time."""
-        # the forecast trains a model for a few seconds: don't hold the simulation lock meanwhile
         try:
             return await asyncio.to_thread(tools.get_forecast, date)
         except ToolInputError as error:

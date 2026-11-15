@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FleetMind – Live</title>
 <style>
-  /* Same look as the replay viewer (viewer/index.html) */
   :root {
     --bg: #eef0f3;
     --panel: #ffffff;
@@ -14,7 +13,6 @@
     --line: #dde1e7;
     --accent: #2f6fdf;
 
-    /* robot task colors (draw.js reads these) */
     --idle: #8a8f98;
     --to-pickup: #2f6fdf;
     --to-dropoff: #1f9d55;
@@ -42,7 +40,6 @@
   .conn.live { background: #e6f4ec; color: #1f7a45; }
   .conn.off { background: #fde8e8; color: #b03030; }
 
-  /* KPI bar */
   .kpibar {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px;
     padding: 16px 20px 0;
@@ -65,7 +62,6 @@
 
   #map { display: block; width: 100%; height: auto; cursor: pointer; }
 
-  /* Roller shutter over the map: down = warehouse closed, rolls up when the day starts */
   .stage { position: relative; overflow: hidden; border-radius: 6px; }
   .shutter {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -284,7 +280,6 @@
     };
   }
 
-  // Every button just sends a command; the screen changes when the server answers.
   function send(command) {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(command));
   }
@@ -379,7 +374,6 @@
   }
 
   function onState(msg) {
-    // keep the previous state for smooth sliding, unless time went backwards (reset)
     prev = cur && msg.tick === cur.tick + 1 ? cur : msg;
     cur = msg;
     arrivedAt = performance.now();
@@ -409,7 +403,6 @@
 
   function draw(now) {
     if (layout && cur) {
-      // how far between prev and cur we are: 0 = just arrived, 1 = done sliding
       const frac = cur.running ? Math.min(1, (now - arrivedAt) / (1000 / cur.speed)) : 1;
 
       map.drawStatic(layout);
@@ -478,7 +471,6 @@
   }
 
   function renderPanel() {
-    // robot table
     $("robots").innerHTML = cur.robots.map((r) => {
       const what = r.carrying ? `${r.carrying} · ${r.order}` : (r.order || "");
       const batColor = r.battery < 25 ? "var(--error)" : "#5b6475";
@@ -490,7 +482,6 @@
       </tr>`;
     }).join("");
 
-    // the followed robot, in detail
     const r = selected && cur.robots.find((x) => x.id === selected);
     $("follow-card").hidden = !r;
     if (r) {
@@ -507,7 +498,6 @@
       $("follow").innerHTML = rows.map(([a, b]) => `<div><span>${a}</span><b>${esc(String(b))}</b></div>`).join("");
     }
 
-    // latest events, newest first (only the followed robot's, if one is followed)
     const list = [];
     for (let i = events.length - 1; i >= 0 && list.length < 40; i--) {
       const [tk, robot, name, details] = events[i];
@@ -520,7 +510,6 @@
   // ------------------------------------------------------------------
   // Small helpers
   // ------------------------------------------------------------------
-  // Roller shutter: closed before the day starts and after it ends, rolled up while open
   function renderShutter() {
     const shutter = $("shutter");
     if (!day) { shutter.hidden = true; return; }
@@ -589,7 +578,6 @@
     if (tr) follow(tr.dataset.id);
   });
 
-  // Keyboard: space = start/pause, right arrow = one step
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
     if (e.code === "Space") { e.preventDefault(); $("play").click(); }

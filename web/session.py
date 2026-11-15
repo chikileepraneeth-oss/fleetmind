@@ -40,8 +40,6 @@ DEFAULT_LAYOUT = "layouts/main_warehouse.json"
 MIN_SPEED, MAX_SPEED = 1, 60      # ticks per second
 RECENT_EVENTS = 50                # how many past events a newly opened tab gets
 
-# Which robot tasks count as "busy" and "charging" in the KPI bar.
-# Everything else (no task, going home) counts as idle.
 BUSY_TASKS = {"to_pickup", "to_dropoff"}
 CHARGING_TASKS = {"to_charger", "charging", "wait_charger"}
 INIT_WAIT = 2.0                   # seconds to wait for robots to answer initPosition (MQTT)
@@ -84,7 +82,6 @@ class LiveSession:
         self.scenario = key
         self.seed = SCENARIOS[key]["seed"] if seed is None else seed
         self.sim = build_simulation(key, self.layout_path, seed=self.seed)
-        # robots that lose their connection now and then (only with MQTT: there "lost" exists)
         self.lost_chance = SCENARIOS[key].get("lost_chance", 0.0)
         self.fault_rng = random.Random(self.seed * 17 + 3)
         self.rescue = {}                   # lost robot id -> tick when the technician has restarted it
@@ -92,9 +89,6 @@ class LiveSession:
         if self.broker is not None:
             self._connect_fleet()
         self._events_sent = 0     # how many of sim.events the browsers have already received
-        # A realistic day (1 tick = 1 minute from 06:00) has an end: orders stop at 22:00,
-        # and the day closes when the last order is delivered (Simulation.day_over).
-        # Other scenarios run forever.
         self.realistic = self.sim.config.demand == "realistic"
 
     def _connect_fleet(self):
@@ -250,7 +244,6 @@ class LiveSession:
             "seed": self.seed,
             "random_day": self.seed != spec["seed"],
             "layout": layout_data(self.sim.warehouse),
-            # the latest events, so a tab opened in the middle of a run isn't empty
             "events": [list(e) for e in self.sim.events[-RECENT_EVENTS:]],
             "day": self.day_info(),
             "transport": self.transport_info(),

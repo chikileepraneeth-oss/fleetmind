@@ -100,7 +100,6 @@ const LABEL = { idle: "Idle", to_home: "Going home", wait_charger: "Waiting for 
 const colorOf = (r) => r.task === "lost" ? COLOR.lost : r.status === "error" ? COLOR.error : (COLOR[r.task] || COLOR.idle);
 const taskOf = (r) => r.task === "lost" ? "Lost (no signal)" : r.status === "error" ? `Broken (${r.repair} left)` : (LABEL[r.task] || r.task);
 
-// USD world (metres, Z up)  ->  three.js (Y up):  (x, y, z)usd -> (x, z, -y)
 const fromUsd = (c) => new THREE.Vector3(c[0], c[2], -c[1]);
 const cellToWorld = (row, col) => new THREE.Vector3(col + 0.5, 0, row + 0.5);
 
@@ -248,7 +247,6 @@ function onState(msg) {
     if (R.body) R.body.material.color.copy(colour);
     R.group.traverse((o) => { if (o.material && o !== R.crate && !o.isSprite) { o.material.transparent = r.task === "lost"; o.material.opacity = r.task === "lost" ? 0.45 : 1; } });
     R.crate.visible = !!r.carrying;
-    // planned route
     const pts = [target.clone().setY(0.04), ...r.path.map(([row, col]) => cellToWorld(row, col).setY(0.04))];
     R.line.geometry.dispose();
     R.line.geometry = new THREE.BufferGeometry().setFromPoints(pts.length > 1 ? pts : []);
@@ -373,7 +371,6 @@ function buildWalkable() {
 }
 
 function walkPath(from, to) {
-  // shortest walk through the aisles (BFS on the grid), from cell to cell
   const key = (c) => c[0] * 1000 + c[1];
   const prev = new Map([[key(from), null]]);
   const queue = [from];
@@ -393,7 +390,6 @@ function walkPath(from, to) {
 }
 
 function standSpot(robotCell) {
-  // a free cell next to the robot, so the technician stands beside it, not inside it
   const taken = new Set(cur.robots.map((r) => r.pos.join()));
   for (const [dr, dc] of [[0, -1], [0, 1], [1, 0], [-1, 0]]) {
     const n = [robotCell[0] + dr, robotCell[1] + dc];
@@ -413,7 +409,6 @@ function pointOnPath(path, f) {
 function updateTechnicians(msg) {
   if (!walkable) return;
   for (const r of msg.robots) {
-    // a broken robot is repaired; a LOST robot is restarted (rescue_in: ticks until the technician has done it)
     const lostRescue = r.task === "lost" && r.rescue_in > 0;
     const broken = (r.status === "error" && r.task !== "lost" && r.repair > 0) || lostRescue;
     const repairLeft = lostRescue ? r.rescue_in : r.repair;
@@ -497,7 +492,6 @@ function updateRestockers(msg, reset) {
   for (const id of Object.keys(restockers)) {
     if (!people.some((p) => p.id === id)) { scene.remove(restockers[id].group); delete restockers[id]; }
   }
-  // where the robots BELIEVE the people are
   const known = msg.known_people || [];
   const key = JSON.stringify(known.map((k) => [k.id, k.cell, k.seen_by]));
   if (key === believedKey) return;
@@ -587,7 +581,6 @@ function follow(id) {
   renderList();
 }
 
-// click a robot in 3D
 const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
 renderer.domElement.addEventListener("click", (e) => {
   const rect = renderer.domElement.getBoundingClientRect();
