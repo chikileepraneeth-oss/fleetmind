@@ -22,6 +22,7 @@ from scripts.fleet_tools import FleetTools
 from scripts.shift_lead.caselog import CaseLog
 from scripts.shift_lead.playbooks import NEEDS_MANAGER, PLAYBOOKS, run_playbook
 from scripts.shift_lead import plan as shift_plan
+from scripts.shift_lead import report as day_report
 from scripts.shift_lead.staff import CLEANABLE
 
 CRITICAL_BATTERY = 15.0
@@ -71,7 +72,7 @@ class Incident:
 
 class ShiftLead:
 
-    def __init__(self, session, manager_allowed=False, caselog=None):
+    def __init__(self, session, manager_allowed=False, caselog=None, reports_dir=None):
         """
         session: web.session.LiveSession (its simulation changes on reset; the lead follows).
         manager_allowed: an LLM may be asked (web/agent_desk.py takes the tasks from `outbox`).
@@ -82,6 +83,7 @@ class ShiftLead:
         self.manager_allowed = manager_allowed
         self.outbox = deque()                          # tasks for the manager: {"text", "incidents", "tick"}
         self.caselog = caselog or CaseLog()            # earlier incidents and how well each option worked
+        self.reports_dir = reports_dir                 # where day reports are saved (None: not saved)
         self.sim = None
         self.attach()
 
@@ -98,6 +100,7 @@ class ShiftLead:
         self._last_kind_tick = {}
         self._many_open_asked = False
         self.plan = None                               # today's shift plan (realistic days), made at 06:00
+        self.report = None                             # the end-of-day report, when the day closes
 
     # ------------------------------------------------------------------
     # The shift plan
@@ -132,6 +135,18 @@ class ShiftLead:
         self.sim.log("plan_approved", details=f"{len(self.plan['actions'])} plan steps are on")
         return self.plan
 
+    def make_report(self):
+        """The day is over: the template report (no LLM), saved; the LLM may rewrite it in the background."""
+        self.report = day_report.make_report(self.session, self)
+        if self.reports_dir:
+            self.report["file"] = day_report.save_report(self.report, self.reports_dir,
+                                                         self.session.scenario, self.session.seed)
+        self.sim.log("day_report", details=self.report["text"].splitlines()[2])
+        if self.manager_allowed:
+            self.outbox.append({"kind": "report", "tick": self.sim.tick, "text": day_report.explain_prompt(self.report),
+                                "incidents": []})
+        return self.report
+
     # ------------------------------------------------------------------
     # After every tick
     # ------------------------------------------------------------------
@@ -146,6 +161,8 @@ class ShiftLead:
             self._decide(incident)
         self._check_solved()
         self._maybe_many_open()
+        if self.report is None and self.session.realistic and self.session.finished:
+            self.make_report()
         self._last_queue = len(self.sim.queue)
         del self.incidents[:-KEEP]
         return new
@@ -239,8 +256,8 @@ class ShiftLead:
 
     def manager_busy(self, task, why):
         """The manager could not take a task: those incidents are only written down."""
-        if task.get("kind") == "plan":
-            return                                     # the rules' plan text stays
+        if task.get("kind") in ("plan", "report"):
+            return                                     # the rules' plan / the template report stays
         for i in self.incidents:
             if i.id in task["incidents"] and i.handled_by == "llm":
                 i.handled_by = "nobody"
@@ -315,6 +332,7 @@ class ShiftLead:
             "open": len(open_now),
             "incidents": [i.to_dict() for i in self.incidents[-25:]],
             "plan": self.plan,
+            "report": self.report,
             "playbooks": sorted(PLAYBOOKS),
         }
 

@@ -50,7 +50,7 @@ class LiveSession:
 
     def __init__(self, layout_path=DEFAULT_LAYOUT, scenario="normal", speed=6,
                  broker=None, robots="inproc", broker_name="", link_options=None, shift_lead=False,
-                 case_log_path=None):
+                 case_log_path=None, reports_dir=None):
         """
         broker=None: the simulation runs here, as before.
         broker=InMemoryBroker() or MqttBroker(...): the fleet runs over MQTT.
@@ -73,7 +73,8 @@ class LiveSession:
         if shift_lead:
             from scripts.shift_lead.caselog import CaseLog
             from scripts.shift_lead.lead import ShiftLead
-            self.lead = ShiftLead(self, caselog=CaseLog(case_log_path))   # None: the case log stays in memory
+            self.lead = ShiftLead(self, caselog=CaseLog(case_log_path),   # None: the case log stays in memory
+                                  reports_dir=reports_dir)                 # None: day reports are not saved
 
     # ------------------------------------------------------------------
     # Controls

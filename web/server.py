@@ -141,7 +141,8 @@ def make_broker(mqtt, broker="127.0.0.1:1883"):
 
 
 def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0.1:1883", state_timeout=0.5,
-               public=False, agent_model=None, incidents=True, shift_lead=False, case_log_path=None):
+               public=False, agent_model=None, incidents=True, shift_lead=False, case_log_path=None,
+               reports_dir=None):
     """
     Build a fresh app with its own session (tests use this to start clean). public=True: the public demo.
     agent_model: the AI supervisor's model (scripts/agent.py); None = no agent. Never used in public mode:
@@ -153,7 +154,7 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
     robots = "external" if mqtt == "external" else "inproc"
     session = LiveSession(str(layout_path), scenario=scenario, broker=bus, robots=robots, broker_name=name,
                           link_options={"state_timeout": state_timeout}, shift_lead=shift_lead,
-                          case_log_path=case_log_path)
+                          case_log_path=case_log_path, reports_dir=reports_dir)
     session.public = public
     hub = Hub(session, public=public)
     if public:
@@ -356,7 +357,7 @@ def main():
             agent_model = ClaudeModel()
     app = create_app(scenario=args.scenario, mqtt=args.mqtt, broker=args.broker, state_timeout=args.state_timeout,
                      public=args.public, agent_model=agent_model, shift_lead=not args.no_shift_lead,
-                     case_log_path=str(ROOT / "data" / "incidents.csv"))
+                     case_log_path=str(ROOT / "data" / "incidents.csv"), reports_dir=str(ROOT / "data" / "reports"))
 
     url = f"http://127.0.0.1:{args.port}"
     if args.mqtt == "memory":

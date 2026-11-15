@@ -78,6 +78,8 @@
   .sign b { display: block; font-size: 22px; margin-bottom: 4px; }
   .sign .when { color: var(--muted); }
   .sign .facts { display: flex; gap: 18px; justify-content: center; margin-top: 12px; }
+  .sign .report { text-align: left; max-width: 520px; max-height: 46vh; overflow-y: auto; margin-top: 12px;
+    font-size: 12px; white-space: pre-wrap; border-top: 1px solid var(--line); padding-top: 8px; }
   .sign .facts div b { font-size: 20px; margin: 0; }
   .sign .facts div span { color: var(--muted); font-size: 12px; }
   .clock { font-variant-numeric: tabular-nums; }
@@ -196,6 +198,7 @@
             <b id="sign-title">Closed</b>
             <div class="when" id="sign-when"></div>
             <div class="facts" id="sign-facts"></div>
+            <div class="report" id="sign-report" hidden></div>
           </div>
         </div>
       </div>
@@ -609,11 +612,18 @@
         [k.orders_waiting + k.orders_in_progress, "not done"],
         [k.on_time_rate == null ? "–" : `${(k.on_time_rate * 100).toFixed(0)}%`, "on time"],
       ].map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join("");
+      const report = cur.shift_lead && cur.shift_lead.report;
+      $("sign-report").hidden = !report;
+      if (report) {
+        const lines = report.text.split("\n").slice(2).join("\n");     // the title and counts are above already
+        $("sign-report").textContent = report.explained ? `${report.explained}\n\n${lines}` : lines;
+      }
       shutter.classList.remove("up");
     } else if (cur.tick === 0 && !cur.running) {
       $("sign-title").textContent = "Closed";
       $("sign-when").textContent = `${day.date} · opens at ${day.open} · press Start`;
       $("sign-facts").innerHTML = "";
+      $("sign-report").hidden = true;
       shutter.classList.remove("up");
     } else {
       shutter.classList.add("up");             // open: the shutter rolls up
