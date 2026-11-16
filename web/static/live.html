@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FleetMind – Live</title>
+<title>FleetMind – Dashboard</title>
 <style>
   :root {
     --bg: #eef0f3;
@@ -78,6 +78,8 @@
   .sign b { display: block; font-size: 22px; margin-bottom: 4px; }
   .sign .when { color: var(--muted); }
   .sign .facts { display: flex; gap: 18px; justify-content: center; margin-top: 12px; }
+  .sign .report { text-align: left; max-width: 520px; max-height: 46vh; overflow-y: auto; margin-top: 12px;
+    font-size: 12px; white-space: pre-wrap; border-top: 1px solid var(--line); padding-top: 8px; }
   .sign .facts div b { font-size: 20px; margin: 0; }
   .sign .facts div span { color: var(--muted); font-size: 12px; }
   .clock { font-variant-numeric: tabular-nums; }
@@ -138,9 +140,23 @@
   #agent-form { display: flex; gap: 6px; } #agent-form input { flex: 1; }
   #agent-incidents { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
   #agent-incidents button { font-size: 12px; padding: 5px 9px; }
+  #lead-decisions { max-height: 220px; overflow-y: auto; font-size: 12px; }
+  #lead-decisions .d { padding: 4px 0; border-bottom: 1px solid var(--line); }
+  #lead-decisions .d b { font-weight: 600; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--line); }
+  .tag.rules { background: #d8f0e0; color: #1d6b3a; } .tag.llm { background: #e4ddf7; color: #4b2c99; }
+  .tag.nobody { background: #f3e2c9; color: #7a4b00; }
+  #lead-plan { font-size: 12px; margin: 6px 0 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+  #lead-plan ul { margin: 4px 0; padding-left: 16px; }
+  #lead-plan .btns { display: flex; gap: 6px; margin-top: 6px; }
   #agent-info { margin: -4px 0 8px; }
   #public-banner { display: none; background: #1d2330; color: #fff; font-size: 13px; padding: 7px 16px; text-align: center; }
   #public-banner a { color: #9cc0ff; }
+  .btn3d { background: var(--accent); color: #fff; text-decoration: none; padding: 6px 12px; border-radius: 8px;
+    font-weight: 600; white-space: nowrap; }
+  .card h3.sub { font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted);
+    margin: 10px 0 4px; font-weight: 600; }
+  .kpi[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -149,12 +165,12 @@
   <a href="https://github.com/chikileepraneeth-oss/fleetmind" target="_blank" rel="noopener">Code and results on GitHub</a></div>
 
 <header>
-  <h1>FleetMind <span>live</span></h1>
+  <h1>FleetMind <span>dashboard</span></h1>
   <select id="scenario" aria-label="Scenario"></select>
   <div id="description"></div>
   <span class="conn" id="conn">connecting…</span>
   <span class="conn" id="transport" hidden></span>
-  <a href="/3d" style="color:var(--accent);text-decoration:none;white-space:nowrap;font-weight:600">3D view →</a>
+  <a href="/3d" class="btn3d" title="The same warehouse in 3D">3D view</a>
   <a href="/viewer/index.html" style="color:var(--accent);text-decoration:none;white-space:nowrap">Replay viewer →</a>
 </header>
 
@@ -164,7 +180,10 @@
   <div class="kpi"><b id="k-delivered">0</b><span>delivered</span></div>
   <div class="kpi"><b id="k-avg">–</b><span>avg delivery (ticks)</span></div>
   <div class="kpi"><b id="k-ontime">–</b><span>on time</span></div>
+  <div class="kpi"><b id="k-late">0</b><span>late</span></div>
   <div class="kpi"><b id="k-queue">0</b><span>orders waiting</span></div>
+  <div class="kpi" id="k-tickets-card" hidden><b id="k-tickets">0</b><span>open tickets</span></div>
+  <div class="kpi" id="k-rules-card" hidden><b id="k-rules">0 / 0</b><span>incidents: rules / AI</span></div>
   <div class="kpi robots" style="grid-column: span 2">
     <b>
       <i style="--c:var(--to-pickup)" id="k-busy">0 busy</i>
@@ -187,6 +206,7 @@
             <b id="sign-title">Closed</b>
             <div class="when" id="sign-when"></div>
             <div class="facts" id="sign-facts"></div>
+            <div class="report" id="sign-report" hidden></div>
           </div>
         </div>
       </div>
@@ -218,16 +238,26 @@
   </section>
 
   <aside class="side">
-    <div class="card" id="agent-card" hidden>
-      <h2>AI supervisor <span class="small" id="agent-busy"></span></h2>
-      <div class="small" id="agent-info"></div>
-      <div id="agent-incidents"></div>
-      <div id="agent-approval"></div>
-      <div id="agent-log" class="agent-log"></div>
-      <form id="agent-form" autocomplete="off">
-        <input id="agent-input" maxlength="500" placeholder="e.g. Prepare for a big delivery at 2 pm">
-        <button type="submit">Send</button>
-      </form>
+    <div class="card" id="lead-card" hidden>
+      <h2>Shift Lead <span class="small" id="lead-counts"></span></h2>
+      <div id="lead-parts">
+        <div id="agent-incidents"></div>
+        <div id="lead-plan" hidden></div>
+        <h3 class="sub">Open tickets</h3>
+        <div class="small" id="lead-tickets"></div>
+        <h3 class="sub">Decisions and why</h3>
+        <div id="lead-decisions"></div>
+      </div>
+      <div id="agent-box" hidden>
+        <h3 class="sub">AI manager <span class="small" id="agent-busy"></span></h3>
+        <div class="small" id="agent-info"></div>
+        <div id="agent-approval"></div>
+        <div id="agent-log" class="agent-log"></div>
+        <form id="agent-form" autocomplete="off">
+          <input id="agent-input" maxlength="500" placeholder="e.g. Make the shift plan, or: prepare for a big delivery at 2 pm">
+          <button type="submit">Send</button>
+        </form>
+      </div>
     </div>
     <div class="card" id="follow-card" hidden>
       <h2>Following <span id="follow-id"></span> <span class="small">(click it again to stop)</span></h2>
@@ -367,10 +397,12 @@
 
   function onHello(msg) {
     const agent = msg.agent || { enabled: false, history: [] };
-    $("agent-card").hidden = !agent.enabled;
+    agentEnabled = agent.enabled;
+    $("agent-box").hidden = !agent.enabled;                 // the public demo: no AI, no chat
+    $("lead-card").hidden = !agent.enabled && !leadOn;
     renderAgentInfo({ provider: agent.provider, free: agent.free, left_today: agent.left_today });
     $("agent-incidents").innerHTML = Object.entries(agent.incidents || {}).map(([kind, label]) =>
-      `<button data-kind="${kind}" title="Make this happen in the warehouse, then watch the supervisor handle it">${esc(label)}</button>`).join("");
+      `<button data-kind="${kind}" title="Make this happen in the warehouse, then watch the Shift Lead handle it">${esc(label)}</button>`).join("");
     if (agent.enabled && !$("agent-log").children.length) {
       for (const m of agent.history) onAgent(m);
     }
@@ -415,6 +447,55 @@
     renderControls();
     renderKpis();
     renderPanel();
+    renderLead(msg);
+  }
+
+  // ------------------------------------------------------------------
+  // The Shift Lead: incidents, decisions (by rules or by the AI) and tickets
+  // ------------------------------------------------------------------
+  let leadKey = "", planKey = "", agentEnabled = false, leadOn = false;
+  const PLAN_WORD = { charge: "Charge", park: "Park near packing", restock_pause: "No restock trips" };
+  function renderPlan(plan) {
+    const box = $("lead-plan");
+    box.hidden = !plan;
+    if (!plan) return;
+    const key = JSON.stringify([plan.status, plan.explained, plan.steps.length]);
+    if (key === planKey) return;
+    planKey = key;
+    const status = { waiting: "waiting for your OK", approved: "approved: the fleet follows it",
+      rejected: "not used today", none: "" }[plan.status] || plan.status;
+    box.innerHTML = `<b>Today's plan</b> <span class="small">(${esc(plan.made_by)}, ${esc(status)})</span>
+      <div>${esc(plan.explained || plan.text)}</div>
+      <ul>${plan.steps.map((s) => `<li>${esc(s.start)}-${esc(s.end)} ${esc(PLAN_WORD[s.kind] || s.kind)}${s.target ? " to " + s.target + "%" : ""}: <span class="small">${esc(s.why)}</span></li>`).join("")}</ul>
+      ${plan.status === "waiting" && plan.steps.length ? '<div class="btns"><button class="primary" data-plan="1">Approve plan</button><button data-plan="0">Not today</button></div>' : ""}`;
+  }
+  $("lead-plan").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-plan]");
+    if (b) send({ type: "plan_answer", ok: b.dataset.plan === "1" });
+  });
+  function renderLead(msg) {
+    const lead = msg.shift_lead;
+    leadOn = !!lead;
+    $("lead-card").hidden = !lead && !agentEnabled;
+    $("lead-parts").hidden = !lead;
+    $("k-tickets-card").hidden = $("k-rules-card").hidden = !lead;
+    if (!lead) return;
+    $("k-tickets").textContent = (msg.tickets || []).filter((t) => t.status !== "done").length;
+    $("k-rules").textContent = `${lead.counts.rules} / ${lead.counts.llm}`;
+    const c = lead.counts;
+    $("lead-counts").textContent = `· ${c.rules} by rules · ${c.llm} by the AI · ${lead.open} open`;
+    const open = (msg.tickets || []).filter((t) => t.status !== "done");
+    $("lead-tickets").textContent = open.length
+      ? "Tickets: " + open.map((t) => `${t.id} ${t.kind} ${t.what}${t.assigned ? " (" + t.assigned + ")" : ""}`).join(", ")
+      : "No open tickets.";
+    renderPlan(lead.plan);
+    const key = JSON.stringify(lead.incidents.map((i) => [i.id, i.status, i.handled_by]));
+    if (key === leadKey) return;
+    leadKey = key;
+    $("lead-decisions").innerHTML = lead.incidents.slice().reverse().map((i) => `
+      <div class="d"><b>${esc(i.id)} ${esc(i.detail)}</b> <span class="tag ${i.handled_by}">${i.handled_by === "llm" ? "AI" : esc(i.handled_by)}</span>
+        ${i.status === "solved" ? `<span class="small">solved in ${i.minutes} min</span>` : ""}
+        <div>${esc(i.decision)}: ${esc(i.reason)}</div></div>`).join("") || '<div class="small">No incidents yet.</div>';
   }
 
   // ------------------------------------------------------------------
@@ -437,11 +518,12 @@
         }
       }
       const slid = {};
-      for (const p of cur.people || []) {
-        const before = (prev.people || []).find((x) => x.id === p.id) || p;
+      const everyone = (m) => (m.people || []).concat((m.staff || []).filter((s) => s.pos));   // restockers + staff on the floor
+      for (const p of everyone(cur)) {
+        const before = everyone(prev).find((x) => x.id === p.id) || p;
         slid[p.id] = [before.pos[0] + (p.pos[0] - before.pos[0]) * frac, before.pos[1] + (p.pos[1] - before.pos[1]) * frac];
       }
-      map.drawPeople(cur.people, cur.known_people, slid);
+      map.drawPeople(everyone(cur), cur.known_people, slid);
       for (const r of cur.robots) {
         const before = prev.robots.find((x) => x.id === r.id) || r;
         const row = before.pos[0] + (r.pos[0] - before.pos[0]) * frac;
@@ -475,8 +557,10 @@
     $("k-throughput").textContent = k.throughput.toFixed(1);
     $("k-delivered").textContent = k.orders_delivered;
     $("k-avg").textContent = k.avg_delivery_time ?? "–";
+    $("k-avg").nextElementSibling.textContent = cur.clock ? "avg delivery (min)" : "avg delivery (ticks)";
     $("k-ontime").textContent = k.on_time_rate == null ? "–" : `${(k.on_time_rate * 100).toFixed(0)}%`;
     $("k-queue").textContent = k.orders_waiting;
+    $("k-late").textContent = k.late_orders;
     $("k-busy").textContent = `${k.robots_busy} busy`;
     $("k-idle").textContent = `${k.robots_idle} idle`;
     $("k-charging").textContent = `${k.robots_charging} charging`;
@@ -549,11 +633,18 @@
         [k.orders_waiting + k.orders_in_progress, "not done"],
         [k.on_time_rate == null ? "–" : `${(k.on_time_rate * 100).toFixed(0)}%`, "on time"],
       ].map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join("");
+      const report = cur.shift_lead && cur.shift_lead.report;
+      $("sign-report").hidden = !report;
+      if (report) {
+        const lines = report.text.split("\n").slice(2).join("\n");     // the title and counts are above already
+        $("sign-report").textContent = report.explained ? `${report.explained}\n\n${lines}` : lines;
+      }
       shutter.classList.remove("up");
     } else if (cur.tick === 0 && !cur.running) {
       $("sign-title").textContent = "Closed";
       $("sign-when").textContent = `${day.date} · opens at ${day.open} · press Start`;
       $("sign-facts").innerHTML = "";
+      $("sign-report").hidden = true;
       shutter.classList.remove("up");
     } else {
       shutter.classList.add("up");             // open: the shutter rolls up

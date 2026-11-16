@@ -29,6 +29,9 @@ ORDERS_PER_ROBOT_HOUR = 2.1      # measured: 5 robots deliver about 10-11 orders
 MAX_DEADLINE_MINUTES = 24 * 60
 
 
+_FORECASTS = {}                  # the forecast only depends on the order history and the day
+
+
 class ToolInputError(ValueError):
     """The request can't be done. The message says why and what to do instead."""
 
@@ -66,7 +69,7 @@ class FleetTools:
 
     def __init__(self, session):
         self.session = session              # web.session.LiveSession (its simulation changes on reset)
-        self._forecasts = {}                # day -> forecast, so a repeated question is instant
+        self._forecasts = _FORECASTS        # day -> forecast, shared: a repeated question is instant
 
     @property
     def sim(self):
@@ -277,6 +280,143 @@ class FleetTools:
         return {"aisle": name, "closed": False}
 
     # ------------------------------------------------------------------
+    # Staff, tickets and robots (used by the Shift Lead's playbooks)
+    # ------------------------------------------------------------------
+
+    def list_tickets(self, only_open=True):
+        """The work tickets of the cleaners and technicians, and what every staff member does."""
+        staff = self._staff()
+        tickets = staff.open_tickets() if only_open else staff.tickets
+        return {
+            "tickets": [t.to_dict() for t in tickets],
+            "staff": [{"id": m.id, "kind": m.kind, "doing": staff.label(m),
+                       "cell": list(m.position) if m.position else None} for m in staff.members],
+        }
+
+    def open_ticket(self, kind, cell=None, robot_id=None, shelf=None, what="", prefer="nearest"):
+        """
+        A job for a person: clean (a spill, box or pallet at a cell), repair (a broken robot),
+        restart (a lost robot) or restock (an empty shelf). Asking twice for the same job is safe:
+        you get the ticket that is already open.
+        """
+        sim = self._open_day()
+        staff = self._staff()
+        wh = sim.warehouse
+        if prefer not in ("nearest", "from desk"):
+            raise ToolInputError("prefer must be 'nearest' (the closest free person) or 'from desk'.")
+        if kind == "clean":
+            cell = self._cell(cell)
+            if cell not in wh.blocked:
+                raise ToolInputError(f"Cell {list(cell)} is not blocked, so there is nothing to clean.")
+            what = what or sim.block_reasons.get(cell, "")
+            ticket = staff.open_ticket("clean", cell, what=what, prefer=prefer)
+        elif kind in ("repair", "restart"):
+            rid = self._robot_id(robot_id)
+            robot = wh.robots[rid]
+            if kind == "repair" and (robot.status.value != "error" or rid in sim.lost):
+                raise ToolInputError(f"{rid} is not broken" + (" (it is lost: use kind 'restart')." if rid in sim.lost else "."))
+            if kind == "restart" and rid not in sim.lost:
+                raise ToolInputError(f"{rid} is not lost, so it doesn't need a restart.")
+            ticket = staff.open_ticket(kind, robot.position, robot=rid)
+        elif kind == "restock":
+            sid = str(shelf or "").strip().upper()
+            if sid not in wh.shelves:
+                raise ToolInputError(f"There is no shelf '{shelf}'. Shelves are named like A1, B3, H5.")
+            ticket = staff.open_ticket("restock", wh.access_cells(wh.shelves[sid])[0], shelf=sid)
+        else:
+            raise ToolInputError("kind must be 'clean', 'repair', 'restart' or 'restock'.")
+        return {"ticket": ticket.to_dict(), "who": "cleaner" if kind in ("clean", "restock") else "technician"}
+
+    def reassign_order(self, robot_id, reason=""):
+        """Give a robot's order back to the queue so another robot does it (only before the item is picked up)."""
+        sim = self._open_day()
+        rid = self._robot_id(robot_id)
+        robot = sim.warehouse.robots[rid]
+        if robot.order is None:
+            raise ToolInputError(f"{rid} has no order to give away.")
+        if robot.carrying is not None:
+            raise ToolInputError(f"{rid} already carries {robot.carrying}: the item stays on it until it delivers.")
+        order = sim.return_order(rid, reason or "given to another robot")
+        return {"robot": rid, "order_back_in_queue": order.order_id, "position_in_queue": 1,
+                "note": "The next free robot takes it (the most urgent order goes first)."}
+
+    def send_to_charger(self, robot_id):
+        """Send a robot that has nothing to do to the nearest free charger now."""
+        from scripts.assignment import send_to_charger
+        sim = self._open_day()
+        rid = self._robot_id(robot_id)
+        robot = sim.warehouse.robots[rid]
+        if rid in sim.lost or robot.status.value == "error":
+            raise ToolInputError(f"{rid} is broken or lost, so it can't drive to a charger.")
+        if robot.task in ("to_charger", "charging"):
+            raise ToolInputError(f"{rid} is already {'charging' if robot.task == 'charging' else 'on its way to a charger'}.")
+        if robot.carrying is not None or robot.order is not None:
+            raise ToolInputError(f"{rid} is busy with an order; the battery check sends it to charge when it must.")
+        if not send_to_charger(sim, robot):
+            raise ToolInputError("Every charger is taken right now. Try again in a few minutes.")
+        return {"robot": rid, "charger": list(robot.target), "battery": round(robot.battery, 1)}
+
+    # ------------------------------------------------------------------
+    # The shift plan (only after a person approved it, see scripts/shift_lead/plan.py)
+    # ------------------------------------------------------------------
+
+    def plan_charging(self, start, end, target=95):
+        """From `start` to `end` (HH:MM), every robot with nothing to do charges up to `target` %."""
+        sim = self._open_day()
+        a, b = self._window(start, end)
+        if isinstance(target, bool) or not isinstance(target, (int, float)) or not 50 <= target <= 100:
+            raise ToolInputError("target must be a battery level from 50 to 100 (%).")
+        sim.set_plan_window("charge", a, b, float(target))
+        return {"charging": f"{clock(a)}-{clock(b)}", "target": target}
+
+    def plan_parking(self, start, end):
+        """From `start` to `end` (HH:MM), robots with nothing to do wait near the packing stations."""
+        sim = self._open_day()
+        a, b = self._window(start, end)
+        sim.set_plan_window("park", a, b)
+        return {"parking_near_packing": f"{clock(a)}-{clock(b)}", "spots": {r: list(c) for r, c in sim.park_at.items()}}
+
+    def plan_restock_pause(self, start, end):
+        """From `start` to `end` (HH:MM), restockers start no new trips into the aisles."""
+        sim = self._open_day()
+        a, b = self._window(start, end)
+        sim.set_plan_window("restock_pause", a, b)
+        note = "" if sim.crew else " (no restockers work today, so nothing changes)"
+        return {"restock_pause": f"{clock(a)}-{clock(b)}", "note": "Restockers wait at the docks." + note}
+
+    def _window(self, start, end):
+        if not self.session.realistic:
+            raise ToolInputError("A shift plan needs a realistic day with a clock (e.g. Realistic Friday).")
+        a, b = self._tick_of(start), self._tick_of(end)
+        if b <= a:
+            raise ToolInputError(f"The window must end after it starts ({start} - {end}).")
+        return a, b
+
+    @staticmethod
+    def _tick_of(text):
+        try:
+            hours, minutes = (int(x) for x in str(text).strip().split(":"))
+        except ValueError:
+            raise ToolInputError(f"'{text}' is not a time. Use HH:MM, e.g. 16:00.") from None
+        if not (0 <= hours < 24 and 0 <= minutes < 60):
+            raise ToolInputError(f"'{text}' is not a time of day.")
+        return (hours - 6) * 60 + minutes                # tick 0 = 06:00, 1 tick = 1 minute
+
+    def reroute_around(self, cell):
+        """Every robot whose planned route goes through this cell plans a new route now."""
+        sim = self._open_day()
+        cell = self._cell(cell)
+        moved = []
+        for robot in sim._robots():
+            if cell in robot.path:
+                robot.path = []
+                sim.table.release(robot.robot_id)
+                moved.append(robot.robot_id)
+        if moved:
+            sim.log("rerouted", details=f"{', '.join(moved)} around {cell}")
+        return {"cell": list(cell), "rerouted": moved}
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
@@ -284,6 +424,22 @@ class FleetTools:
         if self.session.finished:
             raise ToolInputError("The working day is over and the warehouse is closed. Reset to start the day again.")
         return self.sim
+
+    def _staff(self):
+        staff = getattr(self.sim, "staff", None)
+        if staff is None:
+            raise ToolInputError("There are no cleaners or technicians here: start the website with the Shift Lead on.")
+        return staff
+
+    def _cell(self, cell):
+        try:
+            row, col = (int(x) for x in cell)
+        except (TypeError, ValueError):
+            raise ToolInputError(f"A cell is [row, column], e.g. [3, 4], not {cell!r}.") from None
+        if not self.sim.warehouse.is_inside((row, col)):
+            raise ToolInputError(f"Cell {[row, col]} is outside the warehouse "
+                                 f"({self.sim.warehouse.height} rows, {self.sim.warehouse.width} columns).")
+        return (row, col)
 
     def _robot_id(self, robot_id):
         robots = sorted(self.sim.warehouse.robots, key=lambda x: int(x[1:]) if x[1:].isdigit() else 0)

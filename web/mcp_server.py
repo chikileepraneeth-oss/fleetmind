@@ -105,4 +105,39 @@ def build_mcp(hub):
         except ToolInputError as error:
             raise ToolError(str(error)) from None
 
+    if getattr(hub.session, "shift_lead", False):          # staff and tickets only exist with the Shift Lead
+        add_staff_tools(mcp, tools, run)
     return mcp
+
+
+def add_staff_tools(mcp, tools, run):
+
+    @mcp.tool(annotations=READ)
+    async def list_tickets(only_open: bool = True) -> dict[str, Any]:
+        """The work tickets of the cleaners and technicians (clean, repair, restart, restock) and what
+        every staff member is doing now. only_open=false also lists the finished ones."""
+        return await run(tools.list_tickets, only_open)
+
+    @mcp.tool(annotations=CHANGE)
+    async def open_ticket(kind: str, cell: list[int] | None = None, robot_id: str | None = None,
+                          shelf: str | None = None) -> dict[str, Any]:
+        """A job for a person. kind "clean" needs `cell` ([row, column] of a spill, box or pallet),
+        "repair" and "restart" need `robot_id` (a broken or a lost robot), "restock" needs `shelf` (e.g. "C3").
+        A free cleaner or technician walks there. Asking twice for the same job gives the same ticket."""
+        return await run(tools.open_ticket, kind, cell, robot_id, shelf, changes=True)
+
+    @mcp.tool(annotations=CHANGE)
+    async def reassign_order(robot_id: str, reason: str = "") -> dict[str, Any]:
+        """Give a robot's order back to the queue so another robot does it (e.g. the robot broke down).
+        Only before the item is picked up."""
+        return await run(tools.reassign_order, robot_id, reason, changes=True)
+
+    @mcp.tool(annotations=CHANGE)
+    async def send_to_charger(robot_id: str) -> dict[str, Any]:
+        """Send a robot that has nothing to do to the nearest free charger now."""
+        return await run(tools.send_to_charger, robot_id, changes=True)
+
+    @mcp.tool(annotations=CHANGE)
+    async def reroute_around(cell: list[int]) -> dict[str, Any]:
+        """Every robot whose planned route goes through this cell ([row, column]) plans a new route now."""
+        return await run(tools.reroute_around, cell, changes=True)

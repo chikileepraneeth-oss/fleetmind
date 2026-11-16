@@ -258,7 +258,9 @@ function onState(msg) {
     if (!msg.robots.some((r) => r.id === id)) { scene.remove(robots[id].group); routeGroup.remove(robots[id].line); delete robots[id]; }
   }
   renderBlocked(msg);
-  updateTechnicians(msg);
+  if (msg.staff) {                                   // real staff from the server: no made-up technicians
+    for (const id of Object.keys(techs)) { techGroup.remove(techs[id].group); delete techs[id]; }
+  } else updateTechnicians(msg);
   updateRestockers(msg, firstOrReset);
   renderStats();
   renderList();
@@ -329,7 +331,8 @@ function renderBlocked(msg) {
     if (labelled.has(b.why)) continue;                  // one label per closed aisle, not per cell
     labelled.add(b.why);
     const sub = b.until != null ? `until ${timeOf(b.until)}`
-      : b.kind === "closed" ? b.why.split(": ").slice(1).join(": ").slice(0, 18) : "";
+      : b.kind === "closed" ? b.why.split(": ").slice(1).join(": ").slice(0, 18)
+      : ["spill", "box", "pallet"].includes(b.kind) ? b.why.split(/[:;] /).slice(1).join(" ").slice(0, 24) : "";
     const tag = label(BLOCK_TITLE[b.kind] || "Blocked", sub, 52);
     tag.position.copy(cellToWorld(row, col)).setY(b.kind === "person" ? 2.0 : 1.0);
     tag.scale.multiplyScalar(0.75);
@@ -444,6 +447,7 @@ let believedKey = "";
 window.fleet3d.restockers = restockers;
 
 function restockText(p) {
+  if (p.doing) return p.doing;                     // staff: "cleaning spill", "repairing R3", ...
   return { idle: "waiting", to_dock: "to the dock", loading: "loading goods",
     to_shelf: `carrying to ${p.shelf}`, restocking: `restocking ${p.shelf}` }[p.task] || p.task;
 }
@@ -457,6 +461,16 @@ function makeRestocker(p) {
       const crate = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.3), mat("#c8955a"));
       crate.position.set(0, 0.45 + i * 0.21, 0); crate.castShadow = true; crate.name = "crate"; g.add(crate);
     }
+  } else if (p.kind === "cleaner") {                // blue vest, a bucket and a mop
+    g.add(human("#2a7fd4"));
+    const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.1, 0.25, 12), mat("#f2c200"));
+    bucket.position.set(0.3, 0.13, 0.15); bucket.castShadow = true; g.add(bucket);
+    const mop = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.2, 6), mat("#8a6a4a"));
+    mop.position.set(0.28, 0.65, -0.1); mop.rotation.z = 0.25; g.add(mop);
+  } else if (p.kind === "technician") {             // orange vest and a toolbox
+    g.add(human("#ff7a00"));
+    const tools = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.15), mat("#c0392b"));
+    tools.position.set(0.28, 0.08, 0.15); tools.castShadow = true; g.add(tools);
   } else {
     g.add(human("#2e9e5b"));
     const box = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.25), mat("#c8955a"));
@@ -467,7 +481,7 @@ function makeRestocker(p) {
 }
 
 function updateRestockers(msg, reset) {
-  const people = msg.people || [];
+  const people = (msg.people || []).concat((msg.staff || []).filter((s) => s.pos));   // staff in the staff room are hidden
   for (const p of people) {
     const R = restockers[p.id] || (restockers[p.id] = makeRestocker(p));
     const target = cellToWorld(p.pos[0], p.pos[1]);

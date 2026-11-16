@@ -49,7 +49,8 @@ LOST_RESCUE_TICKS = 25            # a technician walks to a lost robot and resta
 class LiveSession:
 
     def __init__(self, layout_path=DEFAULT_LAYOUT, scenario="normal", speed=6,
-                 broker=None, robots="inproc", broker_name="", link_options=None):
+                 broker=None, robots="inproc", broker_name="", link_options=None, shift_lead=False,
+                 case_log_path=None, reports_dir=None):
         """
         broker=None: the simulation runs here, as before.
         broker=InMemoryBroker() or MqttBroker(...): the fleet runs over MQTT.
@@ -66,7 +67,14 @@ class LiveSession:
         self.agents = {}               # robot id -> RobotAgent (only robots="inproc")
         self.link = None
         self.public = False            # the public demo (set by web/server.py): the page shows a banner
+        self.shift_lead = shift_lead   # cleaners, technicians, work tickets and playbooks (scripts/shift_lead/)
+        self.lead = None
         self.load_scenario(scenario)
+        if shift_lead:
+            from scripts.shift_lead.caselog import CaseLog
+            from scripts.shift_lead.lead import ShiftLead
+            self.lead = ShiftLead(self, caselog=CaseLog(case_log_path),   # None: the case log stays in memory
+                                  reports_dir=reports_dir)                 # None: day reports are not saved
 
     # ------------------------------------------------------------------
     # Controls
@@ -81,7 +89,7 @@ class LiveSession:
             raise ValueError(f"unknown scenario '{key}'")
         self.scenario = key
         self.seed = SCENARIOS[key]["seed"] if seed is None else seed
-        self.sim = build_simulation(key, self.layout_path, seed=self.seed)
+        self.sim = build_simulation(key, self.layout_path, seed=self.seed, staff=self.shift_lead)
         self.lost_chance = SCENARIOS[key].get("lost_chance", 0.0)
         self.fault_rng = random.Random(self.seed * 17 + 3)
         self.rescue = {}                   # lost robot id -> tick when the technician has restarted it
@@ -145,6 +153,8 @@ class LiveSession:
             self._rescue_lost_robots()
         else:
             self.sim.step()
+        if self.lead:
+            self.lead.after_tick()                # rules decide at once; the LLM only gets a queued task
         if self.finished:
             self.running = False                  # closing time: stop by itself
 
@@ -168,22 +178,34 @@ class LiveSession:
         for rid in list(self.rescue):
             if rid not in sim.lost:                    # it came back by itself
                 del self.rescue[rid]
+        if sim.staff:                                  # a technician walks there on a restart ticket
+            for rid in sorted(sim.lost):
+                if sim.staff.restart_done(rid):
+                    self._restart(rid)
+            return
         for rid in sorted(sim.lost):
             if rid not in self.rescue:
                 self.rescue[rid] = sim.tick + LOST_RESCUE_TICKS
                 sim.log("technician_sent", rid, f"to {sim.warehouse.robots[rid].position} to restart it")
             elif sim.tick >= self.rescue[rid]:
-                if self.robots_mode == "inproc":
-                    old = self.agents.get(rid)
-                    if old and old.conn and old.conn.open:
-                        old.crash()
-                    self.agents[rid] = start_robots(self.broker, [rid], self.layout_path,
-                                                    heartbeat=type(self.broker).__name__ != "InMemoryBroker")[0]
-                    sim.log("technician_restarted", rid, "the robot is switched on again")
+                if self._restart(rid):
                     del self.rescue[rid]
                 else:
-                    sim.log("technician_report", rid, "can't restart it here: restart its robot program by hand")
                     self.rescue[rid] = sim.tick + 10 ** 9
+
+    def _restart(self, rid):
+        """Switch a lost robot on again (only robots this website runs itself). True if it was restarted."""
+        sim = self.sim
+        if self.robots_mode != "inproc":
+            sim.log("technician_report", rid, "can't restart it here: restart its robot program by hand")
+            return False
+        old = self.agents.get(rid)
+        if old and old.conn and old.conn.open:
+            old.crash()
+        self.agents[rid] = start_robots(self.broker, [rid], self.layout_path,
+                                        heartbeat=type(self.broker).__name__ != "InMemoryBroker")[0]
+        sim.log("technician_restarted", rid, "the robot is switched on again")
+        return True
 
     def set_speed(self, value):
         """Ticks per second. Kept between MIN_SPEED and MAX_SPEED."""
@@ -300,6 +322,9 @@ class LiveSession:
             "queue": frame["queue"],
             "people": frame.get("people", []),             # restocking people / robots (where they REALLY are)
             "known_people": frame.get("known_people", []), # where the robots BELIEVE the people are
+            "staff": frame.get("staff"),                   # cleaners and technicians (None: no staff)
+            "tickets": frame.get("tickets", []),           # their work tickets
+            "shift_lead": self.lead.snapshot() if self.lead else None,   # incidents and decisions
             "events": [list(e) for e in events],
             "clock": clock(frame["tick"]) if self.realistic else None,   # 1 tick = 1 minute from 06:00
             "finished": self.finished,

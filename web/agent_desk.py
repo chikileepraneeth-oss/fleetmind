@@ -9,7 +9,11 @@ The AI supervisor on the website: the chat panel, the Approve / Reject buttons, 
       APPROVAL_TIMEOUT seconds counts as Reject.
     - One task at a time; a few more can wait in a queue.
 
-The desk is OFF in the public demo (web/server.py --public), so nobody can use the API key.
+With the Shift Lead (scripts/shift_lead/lead.py) the rules handle the known incidents; the desk only
+gets what the rules hand over ("needs a manager"), from the lead's outbox, after a tick. The LLM runs
+here, in the background: the simulation never waits for it.
+
+The desk is OFF in the public demo (web/server.py --public): no LLM runs there and no key is read.
 """
 
 import asyncio
@@ -133,7 +137,7 @@ class AgentDesk:
             cells = aisles[name]["cells"][1:4]
             for cell in cells:
                 sim.warehouse.block_cell(cell)
-                sim.blocked_until[cell] = sim.tick + SPILL_TICKS
+                sim.blocked_until[cell] = sim.tick + SPILL_TICKS if not sim.staff else 10 ** 9   # staff: until cleaned
                 sim.block_reasons[cell] = "spill"
             sim.log("cell_blocked", details=f"a spill in aisle {name}: {cells} for {SPILL_TICKS} ticks")
             return (f"INCIDENT: a spill blocks aisle {name} (cells {cells}) for about {SPILL_TICKS} minutes. "
@@ -159,6 +163,29 @@ class AgentDesk:
                           source="big delivery")
         return (f"INCIDENT: a big delivery: {RUSH_ORDERS} orders arrived at once, "
                 f"{RUSH_ORDERS // 3} of them urgent. Make sure the urgent ones are delivered on time.")
+
+    async def _explain(self, lead, task):
+        """One LLM call, in the background: plain words for the plan or the day report. The facts don't change."""
+        kind = task["kind"]
+        target = lead.plan if kind == "plan" else lead.report
+        try:
+            reply = await self.model.create("You explain things to warehouse staff in short, plain sentences.",
+                                            [{"role": "user", "content": task["text"]}])
+            text = " ".join(b.text for b in reply.content if b.type == "text" and b.text).strip()
+        except Exception as error:                     # the rules' text stays
+            await self._say(kind, f"The AI could not write the {kind} ({type(error).__name__}).", {})
+            return
+        if not text or (lead.plan if kind == "plan" else lead.report) is not target:
+            return
+        async with self.hub.lock:
+            target["explained"] = text
+            target["made_by"] = ("rules" if kind == "plan" else "template") + " (written by the AI)"
+            if kind == "report" and target.get("file") and lead.reports_dir:
+                from scripts.shift_lead.report import save_report
+                save_report(target, lead.reports_dir, self.hub.session.scenario, self.hub.session.seed)
+            state = self.hub.session.state_message()
+        await self.hub.broadcast([state])
+        await self._say(kind, text, {})
 
     async def _work(self):
         while True:
@@ -206,6 +233,21 @@ class AgentDesk:
 
     async def watch(self):
         """Called after every tick: does something need the supervisor?"""
+        lead = getattr(self.hub.session, "lead", None)
+        if lead is not None:                           # the Shift Lead decides what reaches the manager
+            while lead.outbox:
+                task = lead.outbox.popleft()
+                if not self.enabled:
+                    lead.manager_busy(task, "no AI is switched on")
+                    continue
+                if task.get("kind") in ("plan", "report"):   # the LLM only writes the words, not the facts
+                    asyncio.create_task(self._explain(lead, task))
+                    continue
+                try:
+                    await self.submit(task["text"], source="shift lead")
+                except ValueError as error:
+                    lead.manager_busy(task, str(error))
+            return
         if not (self.enabled and self.incidents):
             return
         sim = self.hub.session.sim

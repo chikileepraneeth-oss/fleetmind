@@ -24,7 +24,7 @@ from scripts.simulation import Simulation, SimConfig
 OUTPUT = os.path.join("viewer", "recordings.js")
 
 
-def build_simulation(key, layout_path, seed=None):
+def build_simulation(key, layout_path, seed=None, staff=False):
     """
     Build a fresh Simulation for one scenario: load the layout, apply the
     scenario's robot count, start battery and config. Used by this recorder
@@ -45,7 +45,7 @@ def build_simulation(key, layout_path, seed=None):
         for robot in warehouse.robots.values():
             robot.battery = spec["start_battery"]
 
-    config = SimConfig(**spec["config"])
+    config = SimConfig(**{**spec["config"], **({"staff": True} if staff else {})})
     return Simulation(warehouse, seed=spec["seed"] if seed is None else seed, config=config)
 
 
@@ -118,6 +118,7 @@ def snapshot(sim):
                     if c not in getattr(sim, "lost_cells", {}).values()],
         "queue": len(sim.queue),
         **(sim.crew.snapshot() if getattr(sim, "crew", None) else {}),   # restocking people / robots
+        **(sim.staff.snapshot() if getattr(sim, "staff", None) else {}),  # cleaners, technicians, tickets
     }
 
 

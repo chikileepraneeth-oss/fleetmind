@@ -103,6 +103,12 @@ class RestockCrew:
 
     def _work(self, m):
         sim, wh = self.sim, self.sim.warehouse
+        if m.task == "to_rest":                        # the shift plan: stay out of the aisles in a busy hour
+            if m.position == m.target:
+                m.task, m.path = "idle", []
+                return
+            self._step_towards(m)
+            return
         if m.task == "idle":
             self._next_job(m)
         if m.task in ("loading", "restocking"):
@@ -134,6 +140,12 @@ class RestockCrew:
 
     def _next_job(self, m):
         wh = self.sim.warehouse
+        if self.sim.restock_paused():                  # no new trips now: wait at a dock
+            if m.position not in self.docks:
+                free = [d for d in self.docks if d not in wh.people] or self.docks
+                m.target = min(free, key=lambda d: (abs(d[0] - m.position[0]) + abs(d[1] - m.position[1]), d))
+                m.task, m.path = "to_rest", []
+            return
         open_shelves = [s for s in wh.shelves.values() if s.shelf_id not in self.claimed]
         if not open_shelves:
             return

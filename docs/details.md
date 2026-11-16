@@ -436,7 +436,7 @@ The goal: anyone opens a link and sees the warehouse working, in 2D and 3D. But 
 
 `python -m web.server --public` (and the `Dockerfile`, which runs exactly that):
 - One shared warehouse. Everyone who opens the link sees the same day and can press Start, Pause, pick a scenario or start a random day. A banner says it is a public demo, with a link to this repository.
-- No tools, no keys. No AI either, unless `FLEETMIND_PUBLIC_AI=on` (see The AI supervisor). The MCP server (`/mcp`) is not there at all in public mode (it answers 404), the API docs are hidden, and nothing in public mode reads an API key. The container runs as a normal user and never contains `.env` files.
+- No tools, no keys, no LLM. The MCP server (`/mcp`) is not there at all in public mode (it answers 404), the API docs are hidden, and nothing in public mode reads an API key. The container runs as a normal user and never contains `.env` files.
 - Limits: at most 100 open tabs, 3 commands per second per tab ("Slow down a little"), speed at most 30 ticks per second.
 - It runs by itself: it starts with Realistic Friday, and when a day is over the summary shows for 15 seconds, then a new random day starts. While nobody is watching, nothing is computed, so it costs almost nothing.
 - Tested: `/mcp` gives 404, the demo starts by itself, the click limit and the speed cap work, and the normal website still has its tools.
@@ -462,8 +462,25 @@ An AI agent (Claude) that handles incidents with the fleet's MCP tools, and asks
 - Limits: at most 12 tool calls per task, it stops after 3 failed tool calls, and the cost of every task is counted and shown.
 - On the website (`web/agent_desk.py`): an "AI supervisor" card shows every step (task, plan, tool calls, check, cost), a box to type requests, and the Approve / Reject buttons with the agent's reason.
 - The model: Claude (`claude-opus-5-5`) through the official Anthropic SDK, with server-side fallbacks (if the model declines a request, another one continues). Tests use a scripted model instead: fixed answers, no API key, no cost. They check the agent's rules: it plans before it acts, a rejected action never runs, the planning step can't change anything, the limits stop it, a failed check makes it try again, and an incident starts it.
-- In the public demo: off by default. With `FLEETMIND_PUBLIC_AI=on` and a free AI, visitors start incidents with buttons, with a daily limit and one task every 2 minutes per visitor. `/mcp` is never open in `--public`.
+- In the public demo: never. With the Shift Lead, the public demo decides by rules only.
 - Free AI: besides Claude, the supervisor works with Groq, Gemini, OpenRouter, Ollama or any OpenAI-compatible service (`OpenAICompatibleModel` in `scripts/agent.py`). Tool results are sent as compact JSON, which brought one incident from about 15,000 to about 12,000 input tokens. See [how-to-run.md](how-to-run.md).
+
+## The Shift Lead
+
+The code is in `scripts/shift_lead/`. With `--no-shift-lead` (and in every old test) none of it runs, so every old scenario gives exactly the same result as before.
+
+- Staff (`staff.py`): 2 cleaners and 2 technicians wait at the staff desk in the loading-dock corner. A ticket (clean, repair, restart, restock) goes open, assigned, working, done. Cleaning takes 8 minutes for a spill, 4 for a box, 6 for a pallet. A technician's work at a robot is 70% of the repair time, because the old fixed repair time already had the walk in it. People walk with A*, book their cells, and do the job standing on the job's own cell, so they don't close an aisle beside it.
+- Playbooks (`playbooks.py`): spill, box or pallet; robot broken; robot lost; shelf empty; battery critical. Each one only calls the fleet tools, and gives one of three decisions with a reason: robots can work around it, send a person, or needs a manager.
+- Escalation (`lead.py`): only when no playbook fits (a pile of late orders, a sudden big delivery) or when 3 or more incidents are open at once. The task goes into an outbox; the AI desk runs the LLM in the background, so a tick never waits.
+- Case log (`caselog.py`): every solved incident with its option, minutes and late orders, in `data/incidents.csv`. Score = minutes + 10 per late order. Each option is tried at least 3 times before the best average wins.
+- Shift plan (`plan.py`): from the forecast at 06:00. For each busy period: charge to 95% the hour before, park idle robots near packing, no restock trips. One Approve, then the tools `plan_charging`, `plan_parking`, `plan_restock_pause` turn it on. The LLM is never given those tools.
+- Day report (`report.py`): orders, on time, late, the 3 most costly incidents and why, a tip from tomorrow's forecast. Saved to `data/reports/`.
+
+Mistakes I made on the way, found with 30 seeds of Realistic Friday:
+- With walking technicians the old 30-minute repair was counted twice (walk plus 30). Late orders went from 13 to 34 a day. Now the work is 70% of it.
+- A technician stood in the aisle next to the robot for the whole repair, which closed the aisle. Now people stand on the job's cell.
+- A robot broke down on a packing station, and the robots queueing for that station filled every cell around it. The technician waited up to 601 minutes. Now they squeeze in from 2 cells away.
+- On a Messy day a robot got lost while it was being repaired, and the technician worked on it for ever. And a person and a robot could wait for each other's cell for ever. Both are fixed and tested.
 
 ## Tests and CI
 

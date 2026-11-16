@@ -36,6 +36,8 @@ from scripts.traffic import ReservationTable, cooperative_astar, find_wait_cycle
 
 
 BLOCK_REASONS = ["box", "box", "spill", "pallet", "person"]
+CLEAN_KINDS = {"box", "spill", "pallet"}          # with staff: a cleaner must come (scripts/shift_lead/staff.py)
+NEVER = 10 ** 9
 BLOCK_TEXT = {
     "box": "a box fell off a shelf; staff will pick it up",
     "spill": "a spill on the floor; being cleaned",
@@ -82,6 +84,9 @@ class SimConfig:
     sight_range: int = 2             # people: a robot sees a person this many cells away (not through shelves)
     people_tracking: str = "sightings"  # people: "sightings" (robots find them and tell each other) or "badges" (location tags)
     person_hold: str = "smart"       # people: "smart" (a walking person is avoided for 2 ticks) or "window" (every spot for 16)
+    staff: bool = False              # cleaners and technicians who walk to the job (scripts/shift_lead/staff.py)
+    cleaners: int = 2
+    technicians: int = 2
 
 
 class Simulation:
@@ -140,6 +145,12 @@ class Simulation:
                 raise ValueError("restocking needs movement='cooperative' (people and robots share the bookings)")
             from scripts.restock import RestockCrew
             self.crew = RestockCrew(self)
+        self.plan = {"charge": [], "park": [], "restock_pause": []}   # the approved shift plan (empty: none)
+        self.park_at = {}                              # robot id -> where it parks during a "park" window
+        self.staff = None
+        if self.config.staff:
+            from scripts.shift_lead.staff import StaffDesk
+            self.staff = StaffDesk(self, self.config.cleaners, self.config.technicians)
 
         self.breakdowns = 0
         self.drops = 0
@@ -163,6 +174,8 @@ class Simulation:
         self._random_events()
         if self.crew:
             self.crew.step()                           # people / restock robots move; robots look around
+        if self.staff:
+            self.staff.step()                          # cleaners and technicians walk and work on tickets
         assignment.battery_safety(self)
         self._send_low_battery_to_charge()
         self._assign_orders()
@@ -222,6 +235,8 @@ class Simulation:
                 self._empty_since.pop(rid, None)
         for robot in self._robots():
             if robot.status == RobotStatus.ERROR and robot.robot_id not in self.lost:
+                if self.staff and not self.staff.repairing(robot.robot_id):
+                    continue                           # with staff: the repair runs only while a technician works
                 repaired, _ = robot.tick_repair()
                 if repaired:
                     self.log("repaired", robot.robot_id)
@@ -285,6 +300,8 @@ class Simulation:
         wh.block_cell(cell)
         self.blocked_until[cell] = self.tick + self.config.block_ticks
         self.block_reasons[cell] = self.story_rng.choice(BLOCK_REASONS)
+        if self.staff and self.block_reasons[cell] in CLEAN_KINDS:
+            self.blocked_until[cell] = NEVER           # with cleaners: blocked until someone cleans it
         self.blocks += 1
         self.log("cell_blocked", details=f"{cell} for {self.config.block_ticks} ticks: {self.block_reasons[cell]}")
 
@@ -299,6 +316,8 @@ class Simulation:
             assignment.charge_opportunity(self)
         else:
             assignment.charge_simple(self)
+        if self.plan["charge"]:
+            assignment.charge_for_plan(self)          # the shift plan: full batteries before a busy hour
 
     def _free_charger_for(self, robot):
         taken = {r.target for r in self._robots()
@@ -550,7 +569,7 @@ class Simulation:
         An idle robot drives back to its home spot, so it doesn't block aisles,
         packing stations or chargers while it waits for the next order.
         """
-        home = self.home.get(robot.robot_id)
+        home = self._home_of(robot.robot_id)
         if robot.battery < self.config.charge_threshold:
             return      # low battery and no charger free: wait here, don't waste battery driving home
         if self.config.movement != "greedy" and home is not None:
@@ -568,6 +587,46 @@ class Simulation:
             moved, _ = robot.move(direction, self.warehouse)
             if moved and self.warehouse.cell_type(robot.position) == FLOOR:
                 return
+
+    def _home_of(self, robot_id):
+        """Where an idle robot waits: its home spot, or near the packing stations in a planned busy hour."""
+        if self.plan["park"] and robot_id in self.park_at and self._in_window("park"):
+            return self.park_at[robot_id]
+        return self.home.get(robot_id)
+
+    def _in_window(self, kind):
+        return any(start <= self.tick < end for start, end, *_ in self.plan[kind])
+
+    def charge_target(self):
+        """The battery the shift plan wants right now (None: no plan for this minute)."""
+        targets = [t for start, end, t in self.plan["charge"] if start <= self.tick < end]
+        return max(targets) if targets else None
+
+    def restock_paused(self):
+        return bool(self.plan["restock_pause"]) and self._in_window("restock_pause")
+
+    def set_plan_window(self, kind, start, end, target=None):
+        """Add one window of the shift plan (used by scripts/fleet_tools.py, after a person approved the plan)."""
+        self.plan[kind].append((start, end, target) if kind == "charge" else (start, end))
+        if kind == "park" and not self.park_at:
+            self.park_at = self._parking_near_packing()
+        self.log("plan_window", details=f"{kind} from tick {start} to {end}" + (f", {target}%" if target else ""))
+
+    def _parking_near_packing(self):
+        """Free floor cells close to the packing stations that block nobody: one per robot."""
+        from scripts.classes import SHELF
+        wh = self.warehouse
+        taken = set(self.home.values()) | set(self.holding_cells)
+
+        def next_to(cell, kinds):
+            return any(wh.is_inside(n) and wh.cell_type(n) in kinds
+                       for n in ((cell[0] - 1, cell[1]), (cell[0] + 1, cell[1]), (cell[0], cell[1] - 1), (cell[0], cell[1] + 1)))
+
+        cells = [(r, c) for r in range(wh.height) for c in range(wh.width)
+                 if wh.cell_type((r, c)) == FLOOR and (r, c) not in taken
+                 and not next_to((r, c), {SHELF, CHARGER, PACKING})]
+        cells.sort(key=lambda cell: (min(self.dist.get(cell, {}).get(p, 999) for p in self.packing), cell))
+        return {rid: cells[i] for i, rid in enumerate(sorted(self.warehouse.robots)) if i < len(cells)}
 
     def _act_to_home(self, robot):
         if robot.position == robot.target:
@@ -661,6 +720,26 @@ class Simulation:
         robot.path = []
         self.log("robot_paused", robot_id, f"at {robot.position}" + (f": {reason}" if reason else ""))
         return True
+
+    def return_order(self, robot_id, why=""):
+        """
+        Give a robot's order back to the front of the queue, so another robot can do it
+        (for example the robot broke down). Only before pickup: an item on the robot stays there.
+        Returns the order, or None if there was nothing to give back.
+        """
+        robot = self.warehouse.robots[robot_id]
+        order = robot.order
+        if order is None or robot.carrying is not None:
+            return None
+        order.status = OrderStatus.WAITING
+        self.queue.appendleft(order)
+        robot.order = None
+        if robot.task in ("to_pickup", "to_dropoff"):
+            robot.task, robot.target, robot.path = None, None, []
+        self.resume.pop(robot_id, None)
+        self._leave_station_queues(robot_id)
+        self.log("order_returned", robot_id, f"{order.order_id}" + (f": {why}" if why else ""))
+        return order
 
     def resume_robot(self, robot_id):
         if robot_id not in self.paused:
@@ -1067,12 +1146,26 @@ class Simulation:
                 out[cell] = {"why": f"{rid} lost its signal here", "kind": "lost_robot", "until": None}
             elif cell in self.blocked_until:
                 kind = self.block_reasons.get(cell, "box")
-                out[cell] = {"why": BLOCK_TEXT[kind], "kind": kind, "until": self.blocked_until[cell]}
+                until = self.blocked_until[cell]
+                why = BLOCK_TEXT[kind]
+                if until >= NEVER:
+                    until, why = None, self._cleaning_text(cell, kind)
+                out[cell] = {"why": why, "kind": kind, "until": until}
         for name, cells in self.closed_aisles.items():
             reason = self.aisle_reasons.get(name) or "no reason given"
             for cell in cells:
                 out.setdefault(cell, {"why": f"aisle {name} closed: {reason}", "kind": "closed", "until": None})
         return [{"cell": list(c), **v} for c, v in sorted(out.items())]
+
+    def _cleaning_text(self, cell, kind):
+        ticket = self.staff.active("clean", cell=cell) if self.staff else None
+        if ticket is None:
+            return f"{BLOCK_TEXT[kind]}; waiting for a cleaner"
+        if ticket.status == "working":
+            return f"{kind}: {ticket.assigned} is cleaning it"
+        if ticket.status == "assigned":
+            return f"{kind}: {ticket.assigned} is on the way ({ticket.id})"
+        return f"{kind}: ticket {ticket.id}, waiting for a free cleaner"
 
     def kpis(self):
         delivered = [o for o in self.orders if o.status == OrderStatus.DELIVERED]
@@ -1108,4 +1201,6 @@ class Simulation:
             "people_reports": self.crew.reports if self.crew else 0,
             "reroutes_for_people": self.crew.reroutes if self.crew else 0,
             "stops_for_people": self.person_stops,
+            **({"tickets_open": len(self.staff.open_tickets()), "tickets_done": self.staff.done_count}
+               if self.staff else {}),
         }

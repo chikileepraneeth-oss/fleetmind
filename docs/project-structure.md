@@ -34,7 +34,15 @@ fleetmind/
 │   ├── mcp_try.py            # try the tools by hand from an MCP client
 │   ├── restock.py            # restocking by people (robots find them and tell each other) or robots
 │   ├── compare_restock.py    # who should restock: 4 ways over 30 seeds
-│   ├── agent.py              # the AI supervisor: plan, act (with approval), check
+│   ├── agent.py              # the AI manager: plan, act (with approval), check
+│   ├── compare_shift_lead.py # no Shift Lead vs rules vs rules + LLM, 30 seeds
+│   ├── shift_lead/
+│   │   ├── staff.py          # cleaners, technicians and work tickets
+│   │   ├── playbooks.py      # one rule per known incident, only through the tools
+│   │   ├── lead.py           # finds incidents every tick, decides, escalates to the LLM
+│   │   ├── caselog.py        # every incident and how well each option worked
+│   │   ├── plan.py           # the morning shift plan from the forecast
+│   │   └── report.py         # the end-of-day report
 │   └── make_space.py         # prepare the public demo for Hugging Face Spaces
 ├── isaac/
 │   ├── world.py              # the warehouse as a 3D USD world for Isaac Sim
@@ -48,7 +56,7 @@ fleetmind/
 │   ├── agent_desk.py         # the AI supervisor on the website: chat, Approve/Reject, incidents
 │   ├── server.py             # FastAPI server: the page, the WebSocket and the background ticker
 │   └── static/
-│       ├── live.html         # the live website (2D map)
+│       ├── live.html         # the dashboard: KPIs, the 2D map, the Shift Lead panel
 │       └── world3d.html      # the 3D view (/3d)
 ├── tests/
 │   ├── test_classes.py       # rules for robots, orders, shelves, charging, breakdowns
@@ -75,7 +83,13 @@ fleetmind/
 │   ├── test_rescue.py        # lost robots are restarted by a technician
 │   ├── test_agent.py         # the AI supervisor with a scripted model (no API key)
 │   ├── test_free_ai.py       # the free AI adapter, with a fake chat server
-│   └── test_public_ai.py     # the supervisor in the public demo: buttons and limits
+│   ├── test_staff.py         # cleaners, technicians, tickets
+│   ├── test_playbooks.py     # each playbook, only through the tools
+│   ├── test_escalation.py    # when the LLM is asked (ScriptedModel)
+│   ├── test_caselog.py       # the case log and the lookup
+│   ├── test_shift_plan.py    # the morning plan and its one Approve
+│   ├── test_day_report.py    # the end-of-day report
+│   └── test_public_shift_lead.py  # the public demo: rules only, no LLM, no key
 ├── viewer/
 │   ├── draw.js               # drawing code shared by the replay viewer and the live website
 │   └── index.html            # replay viewer
