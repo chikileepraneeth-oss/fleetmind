@@ -71,7 +71,8 @@ class AgentDesk:
         return {"enabled": self.enabled, "history": self.history[-40:], "busy": self.current,
                 "provider": getattr(self.model, "label", "") if self.model else "",
                 "free": bool(self.model) and getattr(self.model, "prices", {}).get("output", 1) == 0,
-                "public": self.public, "left_today": self.left_today(), "incidents": INCIDENT_BUTTONS}
+                "public": self.public, "left_today": self.left_today(), "incidents": INCIDENT_BUTTONS,
+                "chat": "ai" if self.enabled else ("commands" if getattr(self.hub.session, "lead", None) else None)}
 
     def left_today(self):
         """Public demo: AI tasks still allowed today (None = no limit)."""
@@ -103,13 +104,14 @@ class AgentDesk:
 
     # ----- tasks -----
 
-    async def submit(self, task, source="person"):
+    async def submit(self, task, source="person", quick=False):
+        """quick=True: a request typed in the chat (one round of tools and an answer, in seconds)."""
         self.check_can_take()
         task = " ".join(str(task).split())[:200 if self.public else 500]
         if not task:
             raise ValueError("Write what the supervisor should do.")
         try:
-            self.queue.put_nowait((task, source))
+            self.queue.put_nowait((task, source, quick))
         except asyncio.QueueFull:
             raise ValueError("The supervisor has too much to do. Try again in a minute.") from None
         if self.public:
@@ -189,10 +191,10 @@ class AgentDesk:
 
     async def _work(self):
         while True:
-            task, source = await self.queue.get()
+            task, source, quick = await self.queue.get()
             self.current = task
             agent = FleetAgent(self.mcp_server, self.model, ask_approval=self._ask, report=self._say)
-            result = await agent.handle(task)
+            result = await agent.handle(task, quick=quick)
             self.results.append({"task": task, "source": source, "outcome": result.outcome,
                                  "tool_calls": result.tool_calls, "cost_usd": round(result.cost_usd, 4),
                                  "approvals": result.approvals})

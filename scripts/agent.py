@@ -63,6 +63,12 @@ The fleet now: {status}
 Is the task handled, as far as this fleet can do it? Answer with exactly one line:
 DONE: <one sentence why>   or   NOT DONE: <one sentence: what is still wrong>"""
 
+QUICK_PROMPT = """A person in the warehouse asks: {task}
+
+Do it now with the tools: look things up, or make the change they asked for (e.g. create_order with a
+quantity). If a name doesn't match (an item, a robot), use the closest real one from the tool's answer and
+say which one you used. Then answer the person in a few short, plain lines (a list for a report)."""
+
 REPLAN_PROMPT = """The check says the task is NOT done yet: {feedback}
 Look again and continue (you may change the plan). When you are done, say what you did."""
 
@@ -311,7 +317,8 @@ class FleetAgent:
         self.ask_approval = ask_approval or _always_reject
         self.report = report or _quiet
 
-    async def handle(self, task):
+    async def handle(self, task, quick=False):
+        """quick=True: a person's request in the chat: one round of tools and an answer, no plan and check steps."""
         result = Result(task)
         try:
             async with Client(self.mcp_server) as client:
@@ -320,7 +327,7 @@ class FleetAgent:
                               for t in listed]
                 self.read_only = {t.name for t in listed if t.annotations and t.annotations.read_only_hint}
                 self.risky = {t.name for t in listed if t.annotations and t.annotations.destructive_hint}
-                await self._run(client, task, result)
+                await (self._run_quick if quick else self._run)(client, task, result)
         except Exception as error:                     # the agent must never take the website down
             error = _unwrap(error)                     # errors inside the MCP client come wrapped in a group
             result.outcome = "error"
@@ -350,6 +357,13 @@ class FleetAgent:
                 result.summary = f"{result.summary} (check: {verdict})"
                 return
             messages.append({"role": "user", "content": REPLAN_PROMPT.format(feedback=verdict)})
+
+    async def _run_quick(self, client, task, result):
+        await self.report("task", task, {})
+        messages = [{"role": "user", "content": QUICK_PROMPT.format(task=task)}]
+        result.summary = await self._loop(client, messages, result, planning=False)
+        if result.outcome != "stopped":
+            result.outcome = "done"
 
     async def _loop(self, client, messages, result, planning):
         """Model -> tools -> model ... until the model answers without tools. Returns its final text."""

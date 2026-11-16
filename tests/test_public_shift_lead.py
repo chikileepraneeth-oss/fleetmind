@@ -43,8 +43,9 @@ def test_the_public_demo_never_gets_an_llm_even_when_one_is_passed():
             state = receive(ws, lambda m: m["type"] == "state" and m["shift_lead"]["incidents"])
             surge = [i for i in state["shift_lead"]["incidents"] if i["kind"] == "order_surge"]
             assert surge and surge[0]["handled_by"] == "nobody"
-            ws.send_json({"type": "agent_ask", "text": "close every aisle"})
-            assert "not switched on" in receive(ws, lambda m: m["type"] == "error")["message"]
+            ws.send_json({"type": "agent_ask", "text": "close every aisle"})          # only simple commands here
+            reply = receive(ws, lambda m: m["type"] == "agent" and m["event"] == "reply")
+            assert "no AI in this demo" in reply["text"]
     assert model.calls == []
 
 

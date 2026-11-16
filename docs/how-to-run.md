@@ -144,6 +144,15 @@ The free tiers speak the OpenAI chat format, and `scripts/agent.py` has a small 
 
 The public demo (`--public`) never runs an LLM and never reads a key, even with `--agent` or an AI setting in the environment. There the Shift Lead decides by rules only, and visitors see no chat.
 
+## Talk to the warehouse
+
+Type in the chat box of the Shift Lead panel.
+
+- With the AI manager (`--agent`): plain sentences, for example "order 2 cokes for me", "give me a report of every robot", "why is R3 not moving?". The AI answers in one round of tools, in a few seconds. Risky actions still ask for your Approve.
+- Without an AI (and always in the public demo): a few commands, understood by simple rules:
+  `order 2 coke` (also "bring me 3 apples", "I want a croissant"), `report`, `where is R3`, `tickets`, `help`.
+  Everyday names and plurals work. In the public demo: at most 3 items per order and one line every 5 seconds per visitor.
+
 ## Compare the Shift Lead versions
 
 ```powershell

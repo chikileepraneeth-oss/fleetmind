@@ -48,6 +48,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from scripts.fleet_tools import FleetTools
+from scripts.shift_lead import commands as chat_commands
 from web.agent_desk import AgentDesk
 from web.mcp_server import build_mcp
 from web.session import LiveSession
@@ -62,6 +64,8 @@ PUBLIC_COMMANDS_PER_SECOND = 3                       # public demo: commands per
 PUBLIC_MAX_SPEED = 30                                # public demo: ticks per second
 PUBLIC_NEXT_DAY_AFTER = 15                           # public demo: seconds the closed shutter shows before a new day
 PUBLIC_INCIDENT_COOLDOWN = 30                        # public demo: seconds between incident buttons from one tab
+PUBLIC_CHAT_COOLDOWN = 5                             # public demo: seconds between chat lines from one tab
+PUBLIC_MAX_ORDER = 3                                 # public demo: items one chat line may order
 HEARTBEAT_POLL = 0.5                                 # while paused over MQTT: check heartbeats this often
 
 
@@ -227,6 +231,7 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
         await ws.accept()
         recent = []                                  # times of this tab's last commands (public limit)
         last_incident = -10 ** 9                     # when this tab last pressed an incident button (public)
+        last_chat = -10 ** 9                         # when this tab last sent a chat line (public)
         async with hub.lock:
             hello = hub.session.hello_message()
             hello["agent"] = hub.desk.hello()
@@ -259,7 +264,22 @@ def create_app(layout_path=LAYOUT, scenario="normal", mqtt=None, broker="127.0.0
                             await hub.broadcast([state])
                             await hub.desk.watch()
                             continue
-                        await hub.desk.submit(text)               # public: refused (no AI there)
+                        lead = hub.session.lead
+                        if lead and (public or not hub.desk.enabled):  # no AI here: the command reader answers
+                            now = asyncio.get_running_loop().time()
+                            if public and now - last_chat < PUBLIC_CHAT_COOLDOWN:
+                                raise ValueError(f"One chat line every {PUBLIC_CHAT_COOLDOWN} seconds, please.")
+                            last_chat = now
+                            async with hub.lock:
+                                reply = chat_commands.answer(FleetTools(hub.session), text[:200],
+                                                             max_quantity=PUBLIC_MAX_ORDER if public else 10)
+                                tick = hub.session.sim.tick
+                                state = hub.session.state_message()
+                            await hub.send(ws, {"type": "agent", "event": "you", "text": text[:200], "data": {}, "tick": tick})
+                            await hub.send(ws, {"type": "agent", "event": "reply", "text": reply, "data": {}, "tick": tick})
+                            await hub.broadcast([state])
+                            continue
+                        await hub.desk.submit(text, quick=lead is not None)   # public without a Shift Lead: refused
                         continue
                     if kind == "plan_answer":
                         if not hub.session.lead:

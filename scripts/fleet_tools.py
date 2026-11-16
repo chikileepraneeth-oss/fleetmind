@@ -30,6 +30,17 @@ MAX_DEADLINE_MINUTES = 24 * 60
 
 
 _FORECASTS = {}                  # the forecast only depends on the order history and the day
+MAX_QUANTITY = 10                # orders one create_order call may make
+
+# Everyday names for the warehouse's items: "2 cokes" means 2 soda. Only exact words, so nothing is guessed.
+SYNONYMS = {
+    "coke": "soda", "cola": "soda", "pepsi": "soda", "fanta": "soda", "sprite": "soda", "lemonade": "soda",
+    "soft drink": "soda", "pop": "soda", "crisps": "chips", "biscuits": "cookies", "biscuit": "cookies",
+    "chocolates": "chocolate", "espresso": "coffee", "latte": "coffee", "mineral water": "water",
+    "orange juice": "juice", "apple juice": "juice", "yoghurt": "yogurt", "toilet paper": "tissues",
+    "washing powder": "detergent", "dish soap": "detergent", "bun": "bagels", "cupcake": "muffins",
+    "cupcakes": "muffins", "spaghetti": "pasta", "noodles": "pasta", "porridge": "oats", "lentil": "lentils",
+}
 
 
 class ToolInputError(ValueError):
@@ -192,14 +203,29 @@ class FleetTools:
     # Changing things
     # ------------------------------------------------------------------
 
-    def create_order(self, item, priority="normal", deadline_minutes=None):
+    def catalogue(self):
+        """{group: [items]}: what the warehouse sells, by shelf row (Fruit, Drinks, ...)."""
+        groups = {}
+        for sid in sorted(self.sim.warehouse.shelves):
+            shelf = self.sim.warehouse.shelves[sid]
+            groups.setdefault(shelf.name or sid[0], []).extend(shelf.items)
+        return groups
+
+    def create_order(self, item, priority="normal", deadline_minutes=None, quantity=1):
         sim = self._open_day()
-        name = str(item).strip().lower()
+        asked = str(item).strip().lower()
+        name = SYNONYMS.get(asked, asked)
         stock = {i: n for shelf in sim.warehouse.shelves.values() for i, n in shelf.items.items()}
         if name not in stock:
             close = difflib.get_close_matches(name, stock, n=3)
-            hint = f" Did you mean: {', '.join(close)}?" if close else f" Items: {', '.join(sorted(stock))}."
-            raise ToolInputError(f"There is no item '{item}' in the warehouse.{hint}")
+            hint = f" Did you mean: {', '.join(close)}?" if close else ""
+            listing = "; ".join(f"{group}: {', '.join(items)}" for group, items in self.catalogue().items())
+            raise ToolInputError(f"There is no item '{item}' in the warehouse.{hint} The items are: {listing}. "
+                                 f"Pick the one the person most likely means and tell them.")
+        if isinstance(quantity, bool) or not isinstance(quantity, int) or not 1 <= quantity <= MAX_QUANTITY:
+            raise ToolInputError(f"quantity must be a whole number from 1 to {MAX_QUANTITY}.")
+        if 0 < stock[name] < quantity:
+            raise ToolInputError(f"Only {stock[name]} {name} left in stock, not {quantity}.")
         if stock[name] <= 0:
             raise ToolInputError(f"'{name}' is out of stock (0 left on shelf {sim.warehouse.find_shelf_with(name).shelf_id}).")
         try:
@@ -213,12 +239,39 @@ class FleetTools:
                     or not 1 <= deadline_minutes <= MAX_DEADLINE_MINUTES:
                 raise ToolInputError(f"deadline_minutes must be a number from 1 to {MAX_DEADLINE_MINUTES}.")
             deadline = int(deadline_minutes)
-        order = sim.add_order(name, level, deadline)
-        return {
+        orders = [sim.add_order(name, level, deadline) for _ in range(quantity)]
+        order = orders[0]
+        answer = {
             "order": order.order_id, "item": name, "shelf": order.pickup, "priority": level.name.lower(),
             "deadline": clock(order.deadline) if self.session.realistic else f"tick {order.deadline}",
-            "position_in_queue": len(sim.queue),
-            "stock_left_after_pick": stock[name] - 1,
+            "position_in_queue": len(sim.queue) - quantity + 1,
+            "stock_left_after_pick": stock[name] - quantity,
+        }
+        if quantity > 1:
+            answer["orders"] = [o.order_id for o in orders]
+        if name != asked:
+            answer["note"] = f"'{asked}' is sold here as '{name}'."
+        return answer
+
+    def robot_report(self):
+        """Every robot in a few words, plus the fleet's totals: for a person who asks "how are the robots doing?"."""
+        sim = self.sim
+        frame = snapshot(sim)
+        k = sim.kpis()
+        robots = []
+        for r in frame["robots"]:
+            rid = r["id"]
+            problem = ("lost (no signal)" if rid in sim.lost else "broken" if r["status"] == "error"
+                       else "paused" if rid in sim.paused else "low battery" if r["battery"] < 25 else None)
+            robots.append({"id": rid, "cell": r["pos"], "doing": self._doing(r), "battery": r["battery"],
+                           "carrying": r["carrying"], "order": r["order"],
+                           "delivered_today": sim.deliveries_by.get(rid, 0), "problem": problem})
+        return {
+            "time": clock(sim.tick) if self.session.realistic else f"tick {sim.tick}",
+            "robots": robots,
+            "fleet": {"delivered": k["orders_delivered"], "waiting": k["orders_waiting"],
+                      "in_progress": k["orders_in_progress"], "late": k["late_orders"],
+                      "on_time_rate": k["on_time_rate"], "breakdowns_today": k["breakdowns"]},
         }
 
     def pause_robot(self, robot_id, reason=""):

@@ -115,6 +115,9 @@ The supervisor only did jobs the fleet could already do, so I turned it into a S
 
 Walking people showed me how optimistic my old model was. The old fixed repair time already had the technician's walk in it, so I first counted it twice. Then a technician stood next to the robot in a 1-cell aisle and closed it for the whole repair. And when robots queued at a packing station where a robot had broken down, nobody could reach it for hours. I fixed all three, but the result is still honest: the Shift Lead does not beat the old fleet yet (see below).
 
+### 24. Talking to the warehouse
+I wanted to just say "order 2 cokes for me" and see the robots deliver them. With my free Groq model, the chat first went through the full incident steps (plan, act, check) for every sentence: "order 2 cokes" failed after 104 seconds, because the warehouse calls it soda, and a robot report took 88 seconds. Now a chat line gets one round of tools and a short answer: both take about 1 second and about 3,000 tokens instead of 12,000 to 22,000. The tools know everyday names (coke is soda), make several orders in one call and give a robot report. The public demo has no AI, so there a small command reader understands "order 2 coke", "report", "where is R3" and "tickets", with at most 3 items per order.
+
 ## Does the Shift Lead help?
 
 30 seeds each, average +/- standard error (`python -m scripts.compare_shift_lead`). "None" is the old fleet: repairs and cleaning are timers and nobody walks. "Rules" has cleaners, technicians, playbooks, the case log and the approved day plan. "Rules + LLM" adds the LLM manager; here it is the ScriptedModel, a stand-in that does not really think.
@@ -182,7 +185,7 @@ The full file tree is in [docs/project-structure.md](docs/project-structure.md),
 
 ## Tests
 
-There are 463 tests, and GitHub Actions runs them on every push.
+There are 476 tests, and GitHub Actions runs them on every push.
 
 ## What's next
 

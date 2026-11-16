@@ -66,10 +66,12 @@ def build_mcp(hub):
         return await run(tools.get_robot, robot_id)
 
     @mcp.tool(annotations=CHANGE)
-    async def create_order(item: str, priority: str = "normal", deadline_minutes: int | None = None) -> dict[str, Any]:
-        """Add a customer order for one item (e.g. "apples"). priority: "high", "normal" or "low".
+    async def create_order(item: str, priority: str = "normal", deadline_minutes: int | None = None,
+                           quantity: int = 1) -> dict[str, Any]:
+        """Add customer orders for an item (e.g. "apples"); quantity = how many (1 to 10), one order each.
+        Everyday names work too ("coke" is soda). priority: "high", "normal" or "low".
         deadline_minutes: time to deliver from now (default: 60 high, 100 normal, 200 low)."""
-        return await run(tools.create_order, item, priority, deadline_minutes, changes=True)
+        return await run(tools.create_order, item, priority, deadline_minutes, quantity, changes=True)
 
     @mcp.tool(annotations=RISKY)
     async def pause_robot(robot_id: str, reason: str = "") -> dict[str, Any]:
@@ -111,6 +113,12 @@ def build_mcp(hub):
 
 
 def add_staff_tools(mcp, tools, run):
+
+    @mcp.tool(annotations=READ)
+    async def robot_report() -> dict[str, Any]:
+        """Every robot in a few words (where, what it does, battery, load, deliveries today, any problem)
+        and the fleet's totals. Use it when a person asks how the robots are doing."""
+        return await run(tools.robot_report)
 
     @mcp.tool(annotations=READ)
     async def list_tickets(only_open: bool = True) -> dict[str, Any]:

@@ -134,6 +134,7 @@
   .agent-log .m.tool { background: #eef3fc; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
   .agent-log .m.approval { background: #fff4d6; } .agent-log .m.rejected { background: #fde8e8; }
   .agent-log .m.finished { background: #e6f4ec; }
+  .agent-log .m.you { background: #e8eefc; align-self: flex-end; } .agent-log .m.reply { background: #e6f4ec; white-space: pre-wrap; }
   #agent-approval .ask { border: 2px solid #d99a00; border-radius: 10px; padding: 10px; margin-bottom: 8px; background: #fffaf0; }
   #agent-approval .ask code { display: block; margin: 6px 0; white-space: pre-wrap; font-size: 12px; }
   #agent-approval input, #agent-form input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
@@ -325,7 +326,7 @@
   // The AI supervisor: its log, requests, and Approve / Reject
   // ------------------------------------------------------------------
   const AGENT_ICON = { queued: "🕓", task: "📋", plan: "🗺️", thinking: "💭", tool: "🔧", approval: "✋",
-    approval_closed: "", rejected: "⛔", check: "🔎", finished: "🏁" };
+    approval_closed: "", rejected: "⛔", check: "🔎", finished: "🏁", you: "🧑", reply: "💬" };
   const openApprovals = {};
 
   function onAgent(msg) {
@@ -398,8 +399,14 @@
   function onHello(msg) {
     const agent = msg.agent || { enabled: false, history: [] };
     agentEnabled = agent.enabled;
-    $("agent-box").hidden = !agent.enabled;                 // the public demo: no AI, no chat
-    $("lead-card").hidden = !agent.enabled && !leadOn;
+    $("agent-box").hidden = !agent.chat;                    // the AI chat, or simple commands where there is no AI
+    $("agent-busy").textContent = "";
+    if (agent.chat === "commands") {
+      $("agent-box").querySelector("h3").firstChild.textContent = "Chat (no AI here) ";
+      $("agent-info").textContent = "Try: order 2 soda · report · where is R3 · tickets · help";
+      $("agent-input").placeholder = "e.g. order 2 coke";
+    }
+    $("lead-card").hidden = !agent.chat && !leadOn;
     renderAgentInfo({ provider: agent.provider, free: agent.free, left_today: agent.left_today });
     $("agent-incidents").innerHTML = Object.entries(agent.incidents || {}).map(([kind, label]) =>
       `<button data-kind="${kind}" title="Make this happen in the warehouse, then watch the Shift Lead handle it">${esc(label)}</button>`).join("");
