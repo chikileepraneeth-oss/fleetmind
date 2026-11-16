@@ -130,6 +130,16 @@ SCENARIOS = {
         "robots": 2,
         "start_battery": 30.0,
     },
+    "messy_day": {
+        "title": "Messy day (06:00-22:00)",
+        "description": "Realistic Friday demand, but 4 times more breakdowns and blocked cells (spills, boxes, "
+                       "pallets), and now and then a robot loses its connection. Made to test the Shift Lead.",
+        "seed": 42,
+        "ticks": 1020,
+        "config": {"demand": "realistic", "demand_seed": 7, "demand_day": 123,
+                   "breakdown_chance": 0.004, "block_chance": 0.02},
+        "lost_chance": 0.002,
+    },
     "stress_20": {
         "title": "Stress test - 20 robots",
         "description": "20 robots and an order every 2 ticks. Watch the waiting zones, bookings and deadlock handling.",

@@ -112,14 +112,42 @@ def test_a_broken_robot_waits_for_a_technician():
     assert t.status == "done" and t.note == "repaired"
 
 
-def test_people_only_stand_on_the_robot_they_repair_and_robots_never_drive_into_people():
+def test_a_broken_robot_that_gets_lost_needs_a_restart_not_a_repair():
+    sim = calm_sim()
+    robot = sim.warehouse.robots["R1"]
+    robot.break_down(sim.config.repair_ticks)
+    sim.step()
+    repair = sim.staff.active("repair", robot="R1")
+    sim.mark_lost("R1")                                    # its connection drops while it is broken
+    sim.step()
+    assert repair.status == "done" and "restart" in repair.note
+    assert sim.staff.active("restart", robot="R1") is not None
+
+
+def test_a_person_who_waits_for_a_robot_steps_aside():
+    sim = calm_sim()
+    staff = sim.staff
+    member = staff.members[0]
+    member.position = (3, 4)
+    sim.warehouse.people[(3, 4)] = member.id
+    staff._step_aside(member, blocked_by=(3, 5))
+    assert member.position != (3, 4) and member.position != (3, 5)
+    assert sim.warehouse.people[member.position] == member.id and (3, 4) not in sim.warehouse.people
+
+
+def test_robots_never_drive_into_people():
+    """A person may squeeze past a robot that stands still, but a robot never moves onto a person's cell."""
     sim = build_simulation("breakdown_day", LAYOUT, staff=True)
     for _ in range(400):
+        before = {rid: r.position for rid, r in sim.warehouse.robots.items()}
+        people_before = {m.id: m.position for m in sim.staff.members if m.position}
         sim.step()
-        for m in sim.staff.members:
-            robot = sim.warehouse.occupied.get(m.position) if m.position else None
-            if robot is not None:                              # kneeling at the robot it repairs (or just did)
-                assert m.kind == "technician" and m.task in ("working", "returning")
+        stayed = {pos for pid, pos in people_before.items()
+                  if next(m for m in sim.staff.members if m.id == pid).position == pos}
+        for rid, robot in sim.warehouse.robots.items():
+            if robot.position != before[rid]:
+                assert robot.position not in stayed, f"{rid} drove into a person at {robot.position}"
+    assert sim.kpis()["collisions"] == 0 and sim.staff.done_count > 0
     assert sim.kpis()["collisions"] == 0
     assert sim.staff.done_count > 0
 

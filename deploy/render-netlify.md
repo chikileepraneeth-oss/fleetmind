@@ -12,9 +12,8 @@ that keeps a WebSocket open to every visitor.
 2. Make an account at render.com (log in with GitHub; no card needed for the free plan).
 3. **New > Blueprint**, pick the `fleetmind` repository. Render reads `render.yaml`:
    a Docker web service `fleetmind-demo` on the free plan.
-4. Render asks for **EMBED_FROM**: your Netlify address, e.g. `https://yourname.netlify.app`
-   (only that website may show the demo inside its pages). It also asks for **AI_MODEL** and
-   **AI_API_KEY** for the free AI supervisor (see below). Leave them empty to run without it.
+4. `render.yaml` sets **EMBED_FROM** to my Netlify address, `https://fleetmindproject.netlify.app`
+   (only that website may show the demo inside its pages). Change it there if yours is different.
    Click **Apply**.
 5. Wait for the first build (5–10 minutes). The demo is at
    `https://fleetmind-demo.onrender.com` (Render shows the exact address), the 3D view at `/3d`.
@@ -52,14 +51,10 @@ Then deploy your site on Netlify as usual (push to its repository, or drag the f
 They share one warehouse: Start, Pause, scenarios, random days, the 2D and 3D views.
 There are no MCP tools on Render (`/mcp` answers 404).
 
-With a free AI key, visitors can also start an incident with a button and watch the AI
-supervisor handle it. `render.yaml` sets `FLEETMIND_PUBLIC_AI=on`, `AI_PROVIDER=groq` and
-`FLEETMIND_AI_TASKS_PER_DAY=10` (tasks a day for everyone together), and each visitor can start
-one AI task every 2 minutes.
+The Shift Lead runs here by rules only: cleaners, technicians, tickets, playbooks, the
+morning plan (any visitor can approve it) and the day report from a template. Visitors can start
+an incident with a button (one every 30 seconds each) and watch the rules handle it.
 
-1. Make a free account at console.groq.com and create an API key.
-2. Pick a model on its Models page that supports tool use, and put its name in **AI_MODEL**.
-3. Put the key in **AI_API_KEY**. Render keeps it secret; it is never in the repository or the image.
-
-Without a key the demo runs as before, without the supervisor. Never put a paid key
-(like `ANTHROPIC_API_KEY`) on Render, because anyone who opens the demo could spend it.
+The public demo never runs an LLM and never reads an API key, so there are no AI settings on
+Render. If you set some there by hand earlier (`AI_PROVIDER`, `AI_MODEL`, `AI_API_KEY`,
+`FLEETMIND_PUBLIC_AI`), you can delete them in Render > the service > Environment: they are ignored.

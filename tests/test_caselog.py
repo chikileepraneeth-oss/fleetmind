@@ -86,8 +86,9 @@ def test_the_live_shift_lead_saves_cases_and_uses_them(tmp_path):
                 break
         for _ in range(60):                               # let the cleaner walk back
             s.step()
-    cases = s.lead.caselog.cases
-    assert len(cases) == 4 and all(c["kind"] == "spill" and int(c["minutes"]) > 8 for c in cases)
+    cases = [c for c in s.lead.caselog.cases if c["kind"] == "spill"]     # (a low battery may happen too)
+    assert len(cases) == 4 and all(int(c["minutes"]) > 8 for c in cases)
     assert [c["option"] for c in cases] == ["nearest", "from desk", "nearest", "from desk"]   # each gets measured
     assert path.exists()
-    assert s.lead.incidents[-1].advice.startswith("Trying 'from desk'")
+    last_spill = [i for i in s.lead.incidents if i.kind == "spill"][-1]
+    assert last_spill.advice.startswith("Trying 'from desk'")

@@ -105,10 +105,35 @@ Before, a lost robot stayed lost until someone restarted it by hand. Now a techn
 The supervisor (`scripts/agent.py`) handles incidents with the MCP tools. It plans with read-only tools, acts, and then a separate check looks at whether the problem is solved. A risky action, like closing an aisle, only runs after a person clicks Approve on the website. The tests use a scripted model, so they need no key and cost nothing.
 
 ### 21. A free AI option
-Claude costs money for every incident, and I don't know how many people will open the demo. So the supervisor also works with free AI services (Groq, Gemini, OpenRouter) and with Ollama on my own computer. In the public demo, visitors press a button like "A spill blocks an aisle" and watch the supervisor handle it, with a daily limit and one task every 2 minutes per visitor. Sending tool results as compact JSON brought one incident from about 15,000 to about 12,000 input tokens.
+Claude costs money for every incident. So the supervisor also works with free AI services (Groq, Gemini, OpenRouter) and with Ollama on my own computer. Sending tool results as compact JSON brought one incident from about 15,000 to about 12,000 input tokens. For a while visitors of the public demo could start the AI too, but I took that out again with the Shift Lead (below): now no LLM ever runs in the public demo, and it reads no key.
 
 ### 22. Tests on every push
 GitHub Actions runs all tests on every push, and checks that the demo container starts without the tools.
+
+### 23. The Shift Lead
+The supervisor only did jobs the fleet could already do, so I turned it into a Shift Lead that decides by rules first. Cleaners and technicians now walk to a spill or a broken robot on a work ticket, and a playbook decides every known incident at once, only through the tools. The LLM is only asked when no playbook fits, or when 3 or more incidents are open at once, and it runs in the background so a tick never waits. It also keeps a case log to pick the option that worked best before, makes a plan for the day from the forecast that I approve once, and writes a report when the day closes. The public demo runs the rules only: no LLM, no key.
+
+Walking people showed me how optimistic my old model was. The old fixed repair time already had the technician's walk in it, so I first counted it twice. Then a technician stood next to the robot in a 1-cell aisle and closed it for the whole repair. And when robots queued at a packing station where a robot had broken down, nobody could reach it for hours. I fixed all three, but the result is still honest: the Shift Lead does not beat the old fleet yet (see below).
+
+## Does the Shift Lead help?
+
+30 seeds each, average +/- standard error (`python -m scripts.compare_shift_lead`). "None" is the old fleet: repairs and cleaning are timers and nobody walks. "Rules" has cleaners, technicians, playbooks, the case log and the approved day plan. "Rules + LLM" adds the LLM manager; here it is the ScriptedModel, a stand-in that does not really think.
+
+| Day | Version | Delivered | On time | Late | Minutes lost to incidents | LLM calls |
+|---|---|---|---|---|---|---|
+| Realistic Friday | none | 159.0 | 91.7% +/-1.9 | 13.2 +/-3.0 | 238 +/-9 | 0 |
+| Realistic Friday | rules | 159.0 | 85.8% +/-2.9 | 22.6 +/-4.7 | 270 +/-14 | 0 |
+| Realistic Friday | rules + LLM | 159.0 | 85.8% +/-2.9 | 22.6 +/-4.7 | 270 +/-14 | 2.8 |
+| Messy day | none | 159.0 | 42.5% +/-2.8 | 91.5 +/-4.5 | 1221 +/-37 | 0 |
+| Messy day | rules | 153.5 +/-3.1 | 36.7% +/-2.5 | 100.7 +/-3.9 | 1536 +/-130 | 0 |
+| Messy day | rules + LLM | 153.5 +/-3.1 | 36.7% +/-2.5 | 100.7 +/-3.9 | 1536 +/-130 | 50.1 |
+
+Minutes lost = robot-minutes broken or lost + cell-minutes blocked by a spill, box or pallet. "Messy day" has 4 times more breakdowns and blocked cells, and robots that lose their connection.
+
+What I read from it:
+- The old fleet is better on both days. That is mostly because it was too optimistic: a repair started at once, with nobody walking there. Real staff cost time, and the rules have not won that back.
+- The LLM adds nothing here. That is expected with the ScriptedModel. I have not run a real model over 30 seeds yet (`--live`), because it costs tokens.
+- On 3 of 30 Messy days the fleet does not finish by 06:00 (that is the 153.5 delivered). Those runs go over the robots' MQTT messages, and the robot and the manager disagree twice after the Shift Lead changed something. I have not fixed this yet.
 
 ## How much can I trust this simulator?
 
@@ -131,20 +156,20 @@ The commands I use most:
 ```powershell
 python -m pytest                                       # all tests
 python -m scripts.run --seed 42 --ticks 500 --show-map # one simulation in the terminal
-python -m web.server                                   # the live website at http://127.0.0.1:8000
+python -m web.server                                   # the dashboard at http://127.0.0.1:8000 (Shift Lead on)
 docker compose up -d                                   # start the MQTT broker (needs Docker Desktop)
 python -m web.server --mqtt                            # the website, with the robots over MQTT
 python -m web.server --public --mqtt memory            # the public demo on my computer
 ```
 
-Everything else (the AI supervisor with a free or paid AI, the forecast and the M5 data, Isaac Sim, putting the demo online on Hugging Face, Render or Netlify) is in [docs/how-to-run.md](docs/how-to-run.md).
+Everything else (the Shift Lead and its comparison, the AI manager with a free or paid AI, the forecast and the M5 data, Isaac Sim, putting the demo online on Hugging Face, Render or Netlify) is in [docs/how-to-run.md](docs/how-to-run.md).
 
 ## Folders
 
 ```
 layouts/   the warehouse map, shelves, items and robots
-scripts/   the simulation, planning, forecast, MQTT robots and manager, MCP tools, AI supervisor
-web/       the live website, the WebSocket, the MCP server and the supervisor's desk
+scripts/   the simulation, planning, forecast, MQTT robots and manager, MCP tools, the Shift Lead
+web/       the dashboard, the WebSocket, the MCP server and the AI manager's desk
 viewer/    the replay viewer and the drawing code shared with the website
 isaac/     the 3D world for Isaac Sim and the robots in it
 tests/     all tests
@@ -157,12 +182,12 @@ The full file tree is in [docs/project-structure.md](docs/project-structure.md),
 
 ## Tests
 
-There are 412 tests, and GitHub Actions runs them on every push.
+There are 463 tests, and GitHub Actions runs them on every push.
 
 ## What's next
 
 - Record a short demo video.
-- Evaluate the supervisor on 10 to 50 incident scenarios with the expected outcome: how often it succeeds, how many steps it needs and what it costs.
+- Fix the Messy days over MQTT that don't finish, then run the comparison with a real LLM (`--live`).
 - Simulated camera images of an incident for a vision model, and a small classifier for damaged boxes.
 - Run `isaac/run_isaac.py` in Isaac Sim on a GPU machine, then a real wheeled robot model with a lidar.
 

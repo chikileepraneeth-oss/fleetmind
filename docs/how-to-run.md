@@ -108,55 +108,51 @@ docker run --rm -p 8000:8000 fleetmind-demo           # then open http://127.0.0
 
 To put it online, any host that runs a Docker image works, e.g. Hugging Face Spaces (Docker), Google Cloud Run or Fly.io. The host sets `PORT`; the container reads it. Set a budget alert first.
 
-## Run the AI supervisor with Claude (paid)
+## The Shift Lead
 
-1. Get a key at console.anthropic.com (API keys). Set a monthly spending limit there first.
-2. Put it in a file called `.env` in the fleetmind folder (git and Docker ignore this file):
-   ```
-   ANTHROPIC_API_KEY=sk-ant-...
-   ```
-3. Start the website with the supervisor:
-   ```powershell
-   python -m web.server --mqtt memory --agent --scenario connection_trouble
-   ```
-4. Press Start. When a robot is lost, the supervisor starts by itself; or type a request in the "AI supervisor" card. Approve or reject what it asks.
+The website starts with the Shift Lead on: cleaners, technicians, work tickets, playbooks, the case log, the morning plan and the day report. To run the fleet exactly as before (fixed repair and blocked-cell times, no people), use `--no-shift-lead`.
 
-## Run the AI supervisor for free
+```powershell
+python -m web.server --scenario realistic_friday          # the dashboard, Shift Lead by rules only
+python -m web.server --scenario messy_day --mqtt memory   # many spills and breakdowns, and lost robots
+python -m web.server --no-shift-lead                      # the old fleet
+```
 
-The supervisor also works with free AI services. They speak the OpenAI chat format, and `scripts/agent.py` has a small adapter for it (`OpenAICompatibleModel`). I measured one incident: 7 model calls and about 12,000 input tokens, so a free daily quota is enough for a few incidents a day.
+On a realistic day the plan for the day appears at 06:00 in the Shift Lead panel. Click "Approve plan" once and the fleet follows it, or "Not today". The buttons above it start an incident in the warehouse (a spill, two breakdowns, a big delivery). Every solved incident goes into `data/incidents.csv`, and every day report into `data/reports/`. Git ignores both.
+
+## The AI manager (optional, never in the public demo)
+
+With `--agent`, the Shift Lead hands what no playbook covers to an LLM, in the background: an incident it has no playbook for, or 3 or more incidents at the same time. The LLM also writes the plan and the day report in plain words. The rules still decide everything they know, and risky actions still need your Approve.
 
 | `AI_PROVIDER` | Where to get it | Key |
 |---|---|---|
+| `anthropic` | console.anthropic.com, paid | `ANTHROPIC_API_KEY` |
 | `groq` | console.groq.com, free tier | `AI_API_KEY` |
 | `gemini` | aistudio.google.com, free tier | `AI_API_KEY` |
 | `openrouter` | openrouter.ai, free models end in `:free` | `AI_API_KEY` |
 | `ollama` | ollama.com, runs on your own computer (slow on a laptop) | none |
 | `openai` | any other OpenAI-compatible service, with `AI_BASE_URL` | `AI_API_KEY` |
-| `claude` | console.anthropic.com, paid | `ANTHROPIC_API_KEY` |
 
-1. Copy `.env.example` to `.env` and fill in `AI_PROVIDER`, `AI_MODEL` (a model that supports tool use) and `AI_API_KEY`. Git and Docker ignore `.env`.
-2. Start the website with the supervisor:
+1. Copy `.env.example` to `.env` and fill in `AI_PROVIDER`, `AI_MODEL` (a model that supports tool use) and the key. Git and Docker ignore `.env`. For Claude, set a monthly spending limit at console.anthropic.com first.
+2. Start the website with the manager:
    ```powershell
-   python -m web.server --mqtt memory --agent --scenario connection_trouble
+   python -m web.server --mqtt memory --agent --scenario messy_day
    ```
-3. The "AI supervisor" card shows which AI it uses and that it is free (the cost shows $0).
+3. Press Start. Type in the chat box at the bottom of the Shift Lead panel, for example "make the shift plan" or "prepare for a big delivery at 2 pm".
 
-If the free quota is used up, the supervisor waits and tries again (up to 30 seconds each time, at most 4 tries), then says "The free AI quota is used up for now. Try again later." A wrong key gives "The AI key is missing or wrong (check AI_API_KEY)."
+The free tiers speak the OpenAI chat format, and `scripts/agent.py` has a small adapter for it (`OpenAICompatibleModel`). I measured one incident: 7 model calls and about 12,000 input tokens. If a free quota is used up, the manager waits and tries again (up to 30 seconds each time, at most 4 tries), then says "The free AI quota is used up for now. Try again later." A wrong key gives "The AI key is missing or wrong (check AI_API_KEY)."
 
-## Let visitors use the supervisor in the public demo
+The public demo (`--public`) never runs an LLM and never reads a key, even with `--agent` or an AI setting in the environment. There the Shift Lead decides by rules only, and visitors see no chat.
 
-With a free AI, the public demo can show the supervisor too:
+## Compare the Shift Lead versions
 
 ```powershell
-$env:FLEETMIND_PUBLIC_AI = "on"
-python -m web.server --public --mqtt memory
+python -m scripts.compare_shift_lead               # 30 seeds of Realistic Friday and Messy day (about 15 minutes)
+python -m scripts.compare_shift_lead --seeds 5     # quicker
+python -m scripts.compare_shift_lead --live        # rules + LLM with the real model from .env (costs tokens)
 ```
 
-Visitors don't type requests. They press one of three buttons ("A spill blocks an aisle", "Two robots break down", "A big delivery arrives"), the incident happens in the warehouse, and everyone watches the supervisor handle it. The limits:
-
-- `FLEETMIND_AI_TASKS_PER_DAY` tasks a day for everyone together (20 if it is not set; `render.yaml` sets 10).
-- One AI task every 2 minutes per visitor.
-- `/mcp` stays closed (404), and the key is only in `.env` or in the host's secret settings, never in the container.
+It runs no Shift Lead, rules only, and rules + LLM on the same seeds, prints the table, and saves every run to `data/shift_lead_results.csv`. Without `--live` the LLM is the ScriptedModel, a stand-in that does not really think.
 
 ## Put the public demo online (Hugging Face Spaces, free)
 
@@ -175,7 +171,7 @@ Visitors don't type requests. They press one of three buttons ("A spill blocks a
    ```
 5. Wait for the build (a few minutes), then open `https://<your-user-name>-fleetmind.hf.space` (the 3D view is at `/3d`).
 
-The free Space sleeps when nobody visits for a while and wakes up on the next visit. It has no API key and no AI.
+The free Space sleeps when nobody visits for a while and wakes up on the next visit. It has no API key and no LLM.
 
 ## Put the demo on your own website
 

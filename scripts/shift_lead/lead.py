@@ -279,7 +279,7 @@ class ShiftLead:
                 solved = not any(c in wh.blocked for c in i.cells)
             elif i.kind == "robot_broken":
                 robot = wh.robots.get(i.robot)
-                solved = robot is None or (robot.status != RobotStatus.ERROR and i.robot not in sim.lost)
+                solved = robot is None or robot.status != RobotStatus.ERROR or i.robot in sim.lost   # lost: its own incident
             elif i.kind == "robot_lost":
                 solved = i.robot not in sim.lost
             elif i.kind == "shelf_empty":

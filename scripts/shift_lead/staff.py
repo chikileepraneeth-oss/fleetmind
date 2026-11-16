@@ -9,7 +9,10 @@ a lost robot restarted, an empty shelf filled. Each job is a WorkTicket:
 The people (cleaners and technicians) wait at the staff desk in the loading-dock corner,
 where robots never drive. A free person takes the oldest open ticket of their kind, walks
 there with A* (around robots and other people, like the restock people), does the job and
-walks back. While they walk, their cell is booked, so the robots plan around them. For the job
+walks back. A person can squeeze past a robot that stands still and walk across a station, but a
+robot never drives into a person (people move first in a tick). Without that, robots queueing at a
+packing station where a robot broke down kept the technician out for hours. While people walk, their
+cell is booked, so the robots plan around them. For the job
 they step onto the blocked cell itself (into the spill, next to the broken robot): standing
 beside it in a 1-cell aisle would close the aisle for the robots for the whole job.
 
@@ -29,7 +32,7 @@ The staff use no randomness at all, so a run with staff is still the same run ev
 
 from dataclasses import dataclass, field
 
-from scripts.classes import DOCK, RobotStatus
+from scripts.classes import CHARGER, DOCK, FLOOR, PACKING, RobotStatus
 from scripts.movement import astar, is_station
 
 CLEAN_MINUTES = {"spill": 8, "box": 4, "pallet": 6}
@@ -40,6 +43,7 @@ REPAIR_WORK_SHARE = 0.7           # without staff a repair took repair_ticks, wa
                                   # the walk as the first 30%): with a real walk, the work itself is the other 70%
 FULL_STOCK = 20
 WALK_HOLD = 2                     # ticks the robots plan around a walking person's cell
+STEP_ASIDE_AFTER = 3              # a person who waits this long for a robot steps aside (a robot may wait for them)
 KINDS = ("clean", "repair", "restart", "restock")
 WHO = {"clean": "cleaner", "restock": "cleaner", "repair": "technician", "restart": "technician"}
 NEVER = 10 ** 9
@@ -173,6 +177,9 @@ class StaffDesk:
         """A job that solved itself (the robot came back, the cell is open again) needs nobody."""
         sim, wh = self.sim, self.sim.warehouse
         for t in self.open_tickets():
+            if t.kind == "repair" and t.robot in sim.lost:
+                self._finish(t, "the robot is lost now: the restart ticket takes over")
+                continue
             gone = ((t.kind == "clean" and t.cell not in wh.blocked)
                     or (t.kind == "repair" and t.status != "working"
                         and (t.robot not in wh.robots or wh.robots[t.robot].status != RobotStatus.ERROR))
@@ -273,16 +280,19 @@ class StaffDesk:
         if m.target is None:
             return
         if not m.path or m.path[-1] != m.target:
-            avoid = set(wh.occupied) | (set(wh.people) - {m.position})
-            m.path = astar(wh, m.position, m.target, avoid) or astar(wh, m.position, m.target) or []
+            others = set(wh.people) - {m.position}
+            m.path = (astar(wh, m.position, m.target, others | set(wh.occupied), through_stations=True)
+                      or astar(wh, m.position, m.target, others, through_stations=True) or [])
             if not m.path:
                 m.waited += 1
                 return
         nxt = m.path[0]
-        ok, _ = wh.can_enter(nxt)
+        ok = self._can_walk(nxt)
         if not ok:
             m.waited += 1
             m.path = []                                    # plan again next tick (walk around)
+            if m.waited >= STEP_ASIDE_AFTER:
+                self._step_aside(m, nxt)
             return
         del wh.people[m.position]
         m.position = nxt
@@ -301,6 +311,26 @@ class StaffDesk:
         del wh.people[m.position]
         m.position = cell
         wh.people[cell] = m.id
+
+    def _can_walk(self, cell):
+        """Where a person may step: floor, docks and stations, not blocked, nobody else standing there.
+        A robot may be there (the person squeezes past it): robots never drive into people."""
+        wh = self.sim.warehouse
+        return (wh.is_inside(cell) and wh.cell_type(cell) in (FLOOR, DOCK, CHARGER, PACKING)
+                and cell not in wh.blocked and cell not in wh.people)
+
+    def _step_aside(self, m, blocked_by):
+        """A robot and a person can wait for each other's cell for ever: the person steps into a free cell beside."""
+        wh = self.sim.warehouse
+        r, c = m.position
+        for cell in sorted([(r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)],
+                           key=lambda x: (-self._distance(x, blocked_by), x)):
+            if cell != blocked_by and wh.can_enter(cell)[0] and not is_station(wh, cell):
+                del wh.people[m.position]
+                m.position = cell
+                wh.people[cell] = m.id
+                m.waited = 0
+                return
 
     def _arrived(self, m, t):
         if t.kind == "restock":
@@ -322,7 +352,7 @@ class StaffDesk:
             r, c = self._job_cell(t)
             spots = [(r + dr, c + dc) for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1))]
         start = m.position
-        good = self._free_spots(spots, start)
+        good = self._free_spots(spots, start) or [s for s in spots if self._can_walk(s) or s == start]
         if not good and t.kind != "restock":
             # Every cell beside the job is taken (e.g. robots queue at the packing station where the robot
             # broke down, and they can't move until it is repaired): stand 2 cells away and squeeze in.

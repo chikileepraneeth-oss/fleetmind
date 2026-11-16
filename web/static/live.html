@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FleetMind – Live</title>
+<title>FleetMind – Dashboard</title>
 <style>
   :root {
     --bg: #eef0f3;
@@ -152,6 +152,11 @@
   #agent-info { margin: -4px 0 8px; }
   #public-banner { display: none; background: #1d2330; color: #fff; font-size: 13px; padding: 7px 16px; text-align: center; }
   #public-banner a { color: #9cc0ff; }
+  .btn3d { background: var(--accent); color: #fff; text-decoration: none; padding: 6px 12px; border-radius: 8px;
+    font-weight: 600; white-space: nowrap; }
+  .card h3.sub { font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted);
+    margin: 10px 0 4px; font-weight: 600; }
+  .kpi[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -160,12 +165,12 @@
   <a href="https://github.com/chikileepraneeth-oss/fleetmind" target="_blank" rel="noopener">Code and results on GitHub</a></div>
 
 <header>
-  <h1>FleetMind <span>live</span></h1>
+  <h1>FleetMind <span>dashboard</span></h1>
   <select id="scenario" aria-label="Scenario"></select>
   <div id="description"></div>
   <span class="conn" id="conn">connecting…</span>
   <span class="conn" id="transport" hidden></span>
-  <a href="/3d" style="color:var(--accent);text-decoration:none;white-space:nowrap;font-weight:600">3D view →</a>
+  <a href="/3d" class="btn3d" title="The same warehouse in 3D">3D view</a>
   <a href="/viewer/index.html" style="color:var(--accent);text-decoration:none;white-space:nowrap">Replay viewer →</a>
 </header>
 
@@ -175,7 +180,10 @@
   <div class="kpi"><b id="k-delivered">0</b><span>delivered</span></div>
   <div class="kpi"><b id="k-avg">–</b><span>avg delivery (ticks)</span></div>
   <div class="kpi"><b id="k-ontime">–</b><span>on time</span></div>
+  <div class="kpi"><b id="k-late">0</b><span>late</span></div>
   <div class="kpi"><b id="k-queue">0</b><span>orders waiting</span></div>
+  <div class="kpi" id="k-tickets-card" hidden><b id="k-tickets">0</b><span>open tickets</span></div>
+  <div class="kpi" id="k-rules-card" hidden><b id="k-rules">0 / 0</b><span>incidents: rules / AI</span></div>
   <div class="kpi robots" style="grid-column: span 2">
     <b>
       <i style="--c:var(--to-pickup)" id="k-busy">0 busy</i>
@@ -232,20 +240,24 @@
   <aside class="side">
     <div class="card" id="lead-card" hidden>
       <h2>Shift Lead <span class="small" id="lead-counts"></span></h2>
-      <div id="agent-incidents"></div>
-      <div id="lead-plan" hidden></div>
-      <div class="small" id="lead-tickets"></div>
-      <div id="lead-decisions"></div>
-    </div>
-    <div class="card" id="agent-card" hidden>
-      <h2>AI manager <span class="small" id="agent-busy"></span></h2>
-      <div class="small" id="agent-info"></div>
-      <div id="agent-approval"></div>
-      <div id="agent-log" class="agent-log"></div>
-      <form id="agent-form" autocomplete="off">
-        <input id="agent-input" maxlength="500" placeholder="e.g. Prepare for a big delivery at 2 pm">
-        <button type="submit">Send</button>
-      </form>
+      <div id="lead-parts">
+        <div id="agent-incidents"></div>
+        <div id="lead-plan" hidden></div>
+        <h3 class="sub">Open tickets</h3>
+        <div class="small" id="lead-tickets"></div>
+        <h3 class="sub">Decisions and why</h3>
+        <div id="lead-decisions"></div>
+      </div>
+      <div id="agent-box" hidden>
+        <h3 class="sub">AI manager <span class="small" id="agent-busy"></span></h3>
+        <div class="small" id="agent-info"></div>
+        <div id="agent-approval"></div>
+        <div id="agent-log" class="agent-log"></div>
+        <form id="agent-form" autocomplete="off">
+          <input id="agent-input" maxlength="500" placeholder="e.g. Make the shift plan, or: prepare for a big delivery at 2 pm">
+          <button type="submit">Send</button>
+        </form>
+      </div>
     </div>
     <div class="card" id="follow-card" hidden>
       <h2>Following <span id="follow-id"></span> <span class="small">(click it again to stop)</span></h2>
@@ -385,7 +397,9 @@
 
   function onHello(msg) {
     const agent = msg.agent || { enabled: false, history: [] };
-    $("agent-card").hidden = !agent.enabled;
+    agentEnabled = agent.enabled;
+    $("agent-box").hidden = !agent.enabled;                 // the public demo: no AI, no chat
+    $("lead-card").hidden = !agent.enabled && !leadOn;
     renderAgentInfo({ provider: agent.provider, free: agent.free, left_today: agent.left_today });
     $("agent-incidents").innerHTML = Object.entries(agent.incidents || {}).map(([kind, label]) =>
       `<button data-kind="${kind}" title="Make this happen in the warehouse, then watch the Shift Lead handle it">${esc(label)}</button>`).join("");
@@ -439,7 +453,7 @@
   // ------------------------------------------------------------------
   // The Shift Lead: incidents, decisions (by rules or by the AI) and tickets
   // ------------------------------------------------------------------
-  let leadKey = "", planKey = "";
+  let leadKey = "", planKey = "", agentEnabled = false, leadOn = false;
   const PLAN_WORD = { charge: "Charge", park: "Park near packing", restock_pause: "No restock trips" };
   function renderPlan(plan) {
     const box = $("lead-plan");
@@ -461,8 +475,13 @@
   });
   function renderLead(msg) {
     const lead = msg.shift_lead;
-    $("lead-card").hidden = !lead;
+    leadOn = !!lead;
+    $("lead-card").hidden = !lead && !agentEnabled;
+    $("lead-parts").hidden = !lead;
+    $("k-tickets-card").hidden = $("k-rules-card").hidden = !lead;
     if (!lead) return;
+    $("k-tickets").textContent = (msg.tickets || []).filter((t) => t.status !== "done").length;
+    $("k-rules").textContent = `${lead.counts.rules} / ${lead.counts.llm}`;
     const c = lead.counts;
     $("lead-counts").textContent = `· ${c.rules} by rules · ${c.llm} by the AI · ${lead.open} open`;
     const open = (msg.tickets || []).filter((t) => t.status !== "done");
@@ -538,8 +557,10 @@
     $("k-throughput").textContent = k.throughput.toFixed(1);
     $("k-delivered").textContent = k.orders_delivered;
     $("k-avg").textContent = k.avg_delivery_time ?? "–";
+    $("k-avg").nextElementSibling.textContent = cur.clock ? "avg delivery (min)" : "avg delivery (ticks)";
     $("k-ontime").textContent = k.on_time_rate == null ? "–" : `${(k.on_time_rate * 100).toFixed(0)}%`;
     $("k-queue").textContent = k.orders_waiting;
+    $("k-late").textContent = k.late_orders;
     $("k-busy").textContent = `${k.robots_busy} busy`;
     $("k-idle").textContent = `${k.robots_idle} idle`;
     $("k-charging").textContent = `${k.robots_charging} charging`;
